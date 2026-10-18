@@ -63,7 +63,7 @@ func SessionEmail(site string, blocked bool) (subject, text string) {
 }
 
 func BrokenLinkEmail(product, url, errMsg string) (subject, text string) {
-	return fmt.Sprintf("Dropcatch: a %s link stopped working", product),
+	return fmt.Sprintf("Dropcatch: a link for %s stopped working", product),
 		fmt.Sprintf("Dropcatch couldn't read a price for %s.\n\n%s\n\nError: %s\n\nIf the page moved or the listing ended, remove or replace the link in Dropcatch.\n", product, url, errMsg)
 }
 

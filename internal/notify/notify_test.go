@@ -128,3 +128,10 @@ func TestSettingsMailerUsesStoredKey(t *testing.T) {
 		t.Fatalf("auth = %q", auth)
 	}
 }
+
+func TestBrokenLinkEmailSubject(t *testing.T) {
+	subject, _ := BrokenLinkEmail("AirPods Pro 3", "https://x", "boom")
+	if subject != "Dropcatch: a link for AirPods Pro 3 stopped working" {
+		t.Fatalf("subject = %q", subject)
+	}
+}
