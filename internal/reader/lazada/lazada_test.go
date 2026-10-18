@@ -131,3 +131,17 @@ func TestReadKeepsOnlyLoadedPrices(t *testing.T) {
 		t.Fatalf("urls = %v listing = %+v", b.urls, l)
 	}
 }
+
+func TestParseRetCodes(t *testing.T) {
+	cases := map[string]error{
+		`{"ret":["RGV587_ERROR::SM::哎哟喂,被挤爆啦,请稍后重试"],"data":{"url":"https://www.lazada.sg//_____tmd_____/punish"}}`: reader.ErrBlocked,
+		`{"ret":["FAIL_SYS_USER_VALIDATE::验证"],"data":{}}`:                                                          reader.ErrBlocked,
+		`{"ret":["FAIL_SYS_SESSION_EXPIRED::Session过期"],"data":{}}`:                                                 reader.ErrLoggedOut,
+		`{"ret":["FAIL_SYS_ILLEGAL_ACCESS::x"],"data":{}}`:                                                          reader.ErrUnreadable,
+	}
+	for body, want := range cases {
+		if _, err := ParseDetail([]byte(body)); !errors.Is(err, want) {
+			t.Errorf("%s: err = %v, want %v", body[:30], err, want)
+		}
+	}
+}

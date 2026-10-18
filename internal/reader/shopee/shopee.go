@@ -170,6 +170,8 @@ type getPC struct {
 				Price               int64  `json:"price"`
 				PriceBeforeDiscount int64  `json:"price_before_discount"`
 				Status              int    `json:"status"`
+				HasStock            *bool  `json:"has_stock"`
+				IsGrayout           bool   `json:"is_grayout"`
 			} `json:"models"`
 		} `json:"item"`
 		ShopDetailed struct {
@@ -209,7 +211,9 @@ func ParseGetPC(body []byte) (reader.Listing, error) {
 			ExternalID: strconv.FormatInt(m.ModelID, 10),
 			Name:       clean(m.Name),
 			PriceCents: m.Price / 1000,
-			InStock:    m.Status == 1 && !soldOut,
+			// stock_display covers the whole item. has_stock and is_grayout
+			// say whether this one variant can be bought.
+			InStock: m.Status == 1 && !soldOut && (m.HasStock == nil || *m.HasStock) && !m.IsGrayout,
 		}
 		if m.PriceBeforeDiscount != m.Price {
 			v.OriginalCents = m.PriceBeforeDiscount / 1000

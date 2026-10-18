@@ -17,6 +17,7 @@ func TestCoupon(t *testing.T) {
 		{"Apply S$20.00 coupon", 27500, 2000},
 		{"Apply 10% coupon", 27500, 2750},
 		{"apply s$5 voucher Terms", 27500, 500},
+		{"Apply $15 coupon", 27500, 1500},
 		{"Save 5% on 2 items", 27500, 0},
 		{"", 27500, 0},
 	}

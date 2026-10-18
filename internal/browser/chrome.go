@@ -22,6 +22,7 @@ type Config struct {
 	ChromePath string
 	ProfileDir string
 	Settle     time.Duration // wait after navigation before reading; default 6s
+	Timeout    time.Duration // give up on one page load after this; default 90s
 }
 
 // Chrome runs one Chrome process at a time, since a profile can't be opened
@@ -37,6 +38,9 @@ func New(cfg Config) *Chrome {
 	}
 	if cfg.Settle == 0 {
 		cfg.Settle = 6 * time.Second
+	}
+	if cfg.Timeout == 0 {
+		cfg.Timeout = 90 * time.Second
 	}
 	return &Chrome{cfg: cfg}
 }
@@ -68,6 +72,10 @@ func (c *Chrome) Load(ctx context.Context, url string, capture []string) (reader
 	c.mu.Lock()
 	defer c.mu.Unlock()
 
+	// A page whose load event never fires would otherwise hold the browser,
+	// and every check behind it, forever.
+	ctx, cancel := context.WithTimeout(ctx, c.cfg.Timeout)
+	defer cancel()
 	bctx, done := c.launch(ctx, true)
 	defer done()
 
@@ -99,6 +107,9 @@ func (c *Chrome) Load(ctx context.Context, url string, capture []string) (reader
 		chromedp.OuterHTML("html", &page.HTML, chromedp.ByQuery),
 	)
 	if err != nil {
+		if ctx.Err() != nil {
+			return page, fmt.Errorf("page took longer than %s to load", c.cfg.Timeout)
+		}
 		return page, err
 	}
 

@@ -184,7 +184,18 @@ type module struct {
 // didn't price in this response are left out.
 func ParseDetail(body []byte) (reader.Listing, error) {
 	var d detail
-	if err := json.Unmarshal(body, &d); err != nil || d.Data.Module == "" {
+	if err := json.Unmarshal(body, &d); err == nil && len(d.Ret) > 0 {
+		// mtop reports its slider check and expired sessions in ret, with
+		// the page URL unchanged.
+		ret := d.Ret[0]
+		switch {
+		case strings.HasPrefix(ret, "RGV587_ERROR"), strings.HasPrefix(ret, "FAIL_SYS_USER_VALIDATE"):
+			return reader.Listing{}, reader.ErrBlocked
+		case strings.HasPrefix(ret, "FAIL_SYS_SESSION_EXPIRED"):
+			return reader.Listing{}, reader.ErrLoggedOut
+		}
+	}
+	if d.Data.Module == "" {
 		return reader.Listing{}, fmt.Errorf("%w: empty product data %v", reader.ErrUnreadable, d.Ret)
 	}
 	var m module
@@ -208,10 +219,8 @@ func ParseDetail(body []byte) (reader.Listing, error) {
 		if !ok {
 			continue
 		}
-		price, err := money.ParseSGD(info.Price.SalePrice.Text)
-		if err != nil {
-			return reader.Listing{}, fmt.Errorf("%w: sku %s: %v", reader.ErrUnreadable, sku.SkuID, err)
-		}
+		// An unreadable price stays 0, so only this sku counts as unusable.
+		price, _ := money.ParseSGD(info.Price.SalePrice.Text)
 		v := reader.VariantPrice{ExternalID: sku.SkuID, Name: variantName(sku.PropPath, names), PriceCents: price, BestCents: price}
 		if orig, err := money.ParseSGD(info.Price.OriginalPrice.Text); err == nil && orig > price {
 			v.OriginalCents = orig

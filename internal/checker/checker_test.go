@@ -280,3 +280,71 @@ func TestPreviewCanonicalizes(t *testing.T) {
 		t.Fatalf("preview = %+v", l)
 	}
 }
+
+func TestBadUntrackedVariantDoesNotBreakLink(t *testing.T) {
+	e := setup(t)
+	e.r.next = func(string) (reader.Listing, error) { return listing(vp("a", 25000, true), vp("b", 0, true)), nil }
+	e.check(t)
+	if l, _ := e.s.GetLink(context.Background(), e.l.ID); l.Status != store.LinkOK {
+		t.Fatalf("link = %+v", l)
+	}
+	if latest, _ := e.s.LatestReadings(context.Background(), e.p.ID); latest[e.v.ID].BestCents != 25000 {
+		t.Fatalf("latest = %+v", latest)
+	}
+}
+
+func TestBadTrackedVariantBreaksLink(t *testing.T) {
+	e := setup(t)
+	e.r.next = func(string) (reader.Listing, error) { return listing(vp("a", 0, true), vp("b", 100, true)), nil }
+	e.check(t)
+	if l, _ := e.s.GetLink(context.Background(), e.l.ID); l.Status != store.LinkBroken {
+		t.Fatalf("link = %+v", l)
+	}
+	if latest, _ := e.s.LatestReadings(context.Background(), e.p.ID); len(latest) != 0 {
+		t.Fatalf("recorded a reading: %+v", latest)
+	}
+}
+
+func TestGoneTrackedVariantStillRequested(t *testing.T) {
+	e := setup(t)
+	var wants [][]string
+	reader.Register(&wantRecorder{fakeReader: e.r, wants: &wants})
+	e.r.next = func(string) (reader.Listing, error) { return listing(vp("z", 100, true)), nil }
+	e.check(t) // "a" goes missing and is marked gone
+	e.check(t)
+	if len(wants) != 2 || len(wants[1]) != 1 || wants[1][0] != "a" {
+		t.Fatalf("wants = %v", wants)
+	}
+}
+
+type wantRecorder struct {
+	*fakeReader
+	wants *[][]string
+}
+
+func (w *wantRecorder) Read(ctx context.Context, b reader.Browser, url string, want []string) (reader.Listing, error) {
+	*w.wants = append(*w.wants, want)
+	return w.fakeReader.Read(ctx, b, url, want)
+}
+
+func TestBlockOnSiteWithoutLoginRetriesLater(t *testing.T) {
+	e := setup(t)
+	clock := now
+	e.c.Now = func() time.Time { return clock }
+	e.r.next = func(string) (reader.Listing, error) { return reader.Listing{}, reader.ErrBlocked }
+	e.check(t)
+	clock = clock.Add(time.Hour)
+	e.check(t)
+	if e.r.calls != 1 {
+		t.Fatalf("retried after 1h: calls = %d", e.r.calls)
+	}
+	clock = clock.Add(6 * time.Hour)
+	e.r.next = func(string) (reader.Listing, error) { return listing(vp("a", 25000, true)), nil }
+	e.check(t)
+	if e.r.calls != 2 {
+		t.Fatalf("never retried: calls = %d", e.r.calls)
+	}
+	if st, _ := e.s.GetSession(context.Background(), "fake"); st != store.SessionOK {
+		t.Fatalf("session = %q", st)
+	}
+}

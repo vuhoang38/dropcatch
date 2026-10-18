@@ -130,11 +130,28 @@ func (s *Store) GetSession(ctx context.Context, site string) (SessionStatus, err
 }
 
 func (s *Store) SetSession(ctx context.Context, site string, st SessionStatus) error {
+	return s.SetSessionAt(ctx, site, st, time.Now())
+}
+
+func (s *Store) SetSessionAt(ctx context.Context, site string, st SessionStatus, at time.Time) error {
 	_, err := s.db.ExecContext(ctx,
 		`INSERT INTO sessions (site, status, updated_at) VALUES (?, ?, ?)
 		 ON CONFLICT (site) DO UPDATE SET status = excluded.status, updated_at = excluded.updated_at`,
-		site, string(st), time.Now().Unix())
+		site, string(st), at.Unix())
 	return err
+}
+
+// SessionSince returns the site's status and when it was last set.
+func (s *Store) SessionSince(ctx context.Context, site string) (SessionStatus, time.Time, error) {
+	var (
+		st string
+		at int64
+	)
+	err := s.db.QueryRowContext(ctx, `SELECT status, updated_at FROM sessions WHERE site = ?`, site).Scan(&st, &at)
+	if errors.Is(err, sql.ErrNoRows) {
+		return SessionUnknown, time.Time{}, nil
+	}
+	return SessionStatus(st), time.Unix(at, 0), err
 }
 
 func unixPtr(n sql.NullInt64) *time.Time {

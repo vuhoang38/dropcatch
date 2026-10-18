@@ -37,10 +37,17 @@ func (s *Scheduler) Run(ctx context.Context) {
 	if tick == 0 {
 		tick = time.Minute
 	}
-	t := time.NewTicker(tick)
+	// The stale check gets its own loop. A check stuck on a page that never
+	// loads must not stop it from telling you the tracker is dead.
+	go every(ctx, tick, func() { s.checkStale(ctx, s.Now()) })
+	every(ctx, tick, func() { s.runIfDue(ctx) })
+}
+
+func every(ctx context.Context, d time.Duration, f func()) {
+	t := time.NewTicker(d)
 	defer t.Stop()
 	for {
-		s.TickOnce(ctx)
+		f()
 		select {
 		case <-ctx.Done():
 			return
@@ -51,9 +58,12 @@ func (s *Scheduler) Run(ctx context.Context) {
 
 // TickOnce checks for staleness, then runs all products if a run is due.
 func (s *Scheduler) TickOnce(ctx context.Context) {
-	now := s.Now()
-	s.checkStale(ctx, now)
+	s.checkStale(ctx, s.Now())
+	s.runIfDue(ctx)
+}
 
+func (s *Scheduler) runIfDue(ctx context.Context) {
+	now := s.Now()
 	settings, err := s.Store.GetSettings(ctx)
 	if err != nil {
 		log.Printf("scheduler: %v", err)

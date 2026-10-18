@@ -24,11 +24,12 @@ func main() {
 	capture := flag.String("capture", "", "comma separated response URL substrings to save")
 	login := flag.String("login", "", "open this URL visibly and wait until you close the window")
 	settle := flag.Duration("settle", 8*time.Second, "wait after load")
+	timeout := flag.Duration("timeout", 90*time.Second, "give up on the page after this")
 	flag.Parse()
 	if *profile == "" {
 		log.Fatal("-profile is required")
 	}
-	c := browser.New(browser.Config{ProfileDir: *profile, Settle: *settle})
+	c := browser.New(browser.Config{ProfileDir: *profile, Settle: *settle, Timeout: *timeout})
 	ctx := context.Background()
 
 	if *login != "" {

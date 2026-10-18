@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"slices"
 	"strconv"
 	"sync"
 	"time"
@@ -43,6 +44,15 @@ func (c *Checker) Preview(ctx context.Context, rawURL string) (reader.Listing, e
 	if err != nil {
 		c.noteSession(ctx, string(r.Site()), err)
 		return reader.Listing{}, err
+	}
+	if bad := reader.Invalid(l); len(bad) > 0 {
+		var keep []reader.VariantPrice
+		for _, v := range l.Variants {
+			if !slices.Contains(bad, v.ExternalID) {
+				keep = append(keep, v)
+			}
+		}
+		l.Variants = keep
 	}
 	if l.URL == "" {
 		l.URL = canon
@@ -104,12 +114,12 @@ func (c *Checker) CheckProduct(ctx context.Context, productID int64) error {
 		read     = 0
 	)
 	for _, l := range links {
-		st, err := c.Store.GetSession(ctx, l.Site)
+		paused, err := c.sitePaused(ctx, l.Site)
 		if err != nil {
 			return err
 		}
-		if st == store.SessionExpired || st == store.SessionBlocked {
-			continue // paused until you log in again
+		if paused {
+			continue
 		}
 		if read > 0 && c.Sleep != nil {
 			c.Sleep(0)
@@ -128,6 +138,25 @@ func (c *Checker) CheckProduct(ctx context.Context, productID int64) error {
 	return errors.Join(errs...)
 }
 
+// BlockRetry is how long a site without a login stays paused after a
+// verification page before Dropcatch tries it again.
+const BlockRetry = 6 * time.Hour
+
+// sitePaused reports whether to skip a site this check. Shopee and Lazada wait
+// for you to log in again. Other sites retry after BlockRetry.
+func (c *Checker) sitePaused(ctx context.Context, site string) (bool, error) {
+	st, since, err := c.Store.SessionSince(ctx, site)
+	switch {
+	case err != nil:
+		return false, err
+	case st == store.SessionExpired:
+		return true, nil
+	case st == store.SessionBlocked:
+		return reader.NeedsLogin(site) || c.Now().Sub(since) < BlockRetry, nil
+	}
+	return false, nil
+}
+
 func (c *Checker) checkLink(ctx context.Context, p store.Product, l store.Link) ([]found, error) {
 	now := c.Now()
 	variants, err := c.Store.ListVariants(ctx, l.ID)
@@ -136,7 +165,8 @@ func (c *Checker) checkLink(ctx context.Context, p store.Product, l store.Link) 
 	}
 	var want []string
 	for _, v := range variants {
-		if v.Tracked && !v.Gone {
+		// Gone ones too, so a variant that dropped out once can come back.
+		if v.Tracked {
 			want = append(want, v.ExternalID)
 		}
 	}
@@ -149,6 +179,9 @@ func (c *Checker) checkLink(ctx context.Context, p store.Product, l store.Link) 
 	if err == nil {
 		err = reader.Validate(listing)
 	}
+	if err == nil {
+		err = badTracked(listing, variants)
+	}
 	if err != nil {
 		return nil, c.recordFailure(ctx, p, l, err, now)
 	}
@@ -160,12 +193,29 @@ func (c *Checker) checkLink(ctx context.Context, p store.Product, l store.Link) 
 	if listing.Title != "" && (listing.Title != l.Title || listing.Seller != l.Seller) {
 		_ = c.Store.UpdateLinkInfo(ctx, l.ID, listing.Title, listing.Seller)
 	}
-	_ = c.Store.SetSession(ctx, l.Site, store.SessionOK)
+	_ = c.Store.SetSessionAt(ctx, l.Site, store.SessionOK, now)
 	_ = c.Store.SetTime(ctx, "last_success_at", now)
 	c.clear(ctx, "link:"+strconv.FormatInt(l.ID, 10))
 	c.clear(ctx, "session:"+l.Site)
 
 	return c.reconcile(ctx, l, variants, listing, now)
+}
+
+// badTracked fails the link when a variant you track has no usable price.
+// A bad variant you don't track is just skipped.
+func badTracked(l reader.Listing, stored []store.Variant) error {
+	tracked := map[string]string{}
+	for _, v := range stored {
+		if v.Tracked {
+			tracked[v.ExternalID] = v.Name
+		}
+	}
+	for _, id := range reader.Invalid(l) {
+		if name, ok := tracked[id]; ok {
+			return fmt.Errorf("%w: no usable price for %q", reader.ErrUnreadable, name)
+		}
+	}
+	return nil
 }
 
 // reconcile matches the page's variants to stored ones and records readings
@@ -242,7 +292,7 @@ func (c *Checker) noteSession(ctx context.Context, site string, err error) bool 
 		return false
 	}
 	log.Printf("%s session: %s", site, st)
-	_ = c.Store.SetSession(ctx, site, st)
+	_ = c.Store.SetSessionAt(ctx, site, st, c.Now())
 	subject, text := notify.SessionEmail(site, st == store.SessionBlocked)
 	if err := c.raise(ctx, "session:"+site, subject, text); err != nil {
 		log.Printf("session email: %v", err)

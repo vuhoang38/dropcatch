@@ -135,3 +135,10 @@ func TestBrokenLinkEmailSubject(t *testing.T) {
 		t.Fatalf("subject = %q", subject)
 	}
 }
+
+func TestSessionEmailForSiteWithoutLogin(t *testing.T) {
+	_, text := SessionEmail("amazon", true)
+	if strings.Contains(text, "Log in") || !strings.Contains(text, "try again") {
+		t.Fatalf("text = %q", text)
+	}
+}

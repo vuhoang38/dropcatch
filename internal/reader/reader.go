@@ -18,6 +18,12 @@ const (
 	Courts Site = "courts"
 )
 
+// NeedsLogin reports whether a site only shows your vouchers when logged in.
+// A block on any other site clears by itself after a while.
+func NeedsLogin(site string) bool {
+	return site == string(Shopee) || site == string(Lazada)
+}
+
 type VariantPrice struct {
 	ExternalID string
 	Name       string
@@ -98,20 +104,26 @@ func For(raw string) (Reader, string, error) {
 	return nil, "", fmt.Errorf("unsupported site: %s", raw)
 }
 
-// Validate rejects listings that would record a wrong price.
+// Validate rejects a listing with no variant that has a usable price. A
+// listing can still hold some bad variants, which Invalid names.
 func Validate(l Listing) error {
 	if len(l.Variants) == 0 {
 		return fmt.Errorf("%w: no variants on page", ErrUnreadable)
 	}
-	for _, v := range l.Variants {
-		switch {
-		case v.ExternalID == "":
-			return fmt.Errorf("%w: variant without id", ErrUnreadable)
-		case v.PriceCents <= 0 || v.BestCents <= 0:
-			return fmt.Errorf("%w: zero price for %q", ErrUnreadable, v.Name)
-		case v.BestCents > v.PriceCents:
-			return fmt.Errorf("%w: best price above price for %q", ErrUnreadable, v.Name)
-		}
+	if len(Invalid(l)) == len(l.Variants) {
+		return fmt.Errorf("%w: no usable price for %q", ErrUnreadable, l.Variants[0].Name)
 	}
 	return nil
+}
+
+// Invalid lists the external IDs of variants whose price would be wrong to
+// record: missing, zero, or a best price above the price.
+func Invalid(l Listing) []string {
+	var out []string
+	for _, v := range l.Variants {
+		if v.ExternalID == "" || v.PriceCents <= 0 || v.BestCents <= 0 || v.BestCents > v.PriceCents {
+			out = append(out, v.ExternalID)
+		}
+	}
+	return out
 }

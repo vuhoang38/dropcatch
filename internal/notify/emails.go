@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"dropcatch/internal/money"
+	"dropcatch/internal/reader"
 )
 
 // SiteName is how a site reads in emails and on the dashboard.
@@ -54,6 +55,10 @@ func DropEmail(a DropAlert) (subject, text string) {
 
 func SessionEmail(site string, blocked bool) (subject, text string) {
 	name := SiteName(site)
+	if blocked && !reader.NeedsLogin(site) {
+		return fmt.Sprintf("Dropcatch: %s wants a verification check", name),
+			fmt.Sprintf("%s showed a verification page, so Dropcatch paused checking %s. It will try again in a few hours. You don't need to do anything unless this keeps happening.\n", name, name)
+	}
 	if blocked {
 		return fmt.Sprintf("Dropcatch: %s wants a verification check", name),
 			fmt.Sprintf("%s showed a verification page, so Dropcatch paused checking %s.\n\nOpen Dropcatch, go to Settings, and click Log in next to %s. Solve the check in the window that opens, then close it.\n", name, name, name)

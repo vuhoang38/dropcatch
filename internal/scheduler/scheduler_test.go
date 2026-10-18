@@ -3,6 +3,7 @@ package scheduler
 import (
 	"context"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -126,4 +127,49 @@ func TestFreshInstallNotStale(t *testing.T) {
 	if len(mail.subjects) != 0 {
 		t.Fatalf("mail = %v", mail.subjects)
 	}
+}
+
+type hangingReader struct{ countingReader }
+
+func (r *hangingReader) Canonical(raw string) (string, bool) {
+	return raw, strings.HasPrefix(raw, "https://hang.test/")
+}
+func (r *hangingReader) Site() reader.Site { return "hang" }
+func (r *hangingReader) Read(ctx context.Context, b reader.Browser, url string, want []string) (reader.Listing, error) {
+	<-ctx.Done() // a page that never finishes loading
+	return reader.Listing{}, ctx.Err()
+}
+
+func TestStaleEmailWhileCheckHangs(t *testing.T) {
+	clock := base
+	sch, s, _, _ := setup(t, &clock)
+	ctx := context.Background()
+	_ = s.DeleteLink(ctx, 1)
+	l, _ := s.CreateLink(ctx, 1, "https://hang.test/1", "hang", "", "")
+	_, _ = s.UpsertVariant(ctx, store.Variant{LinkID: l.ID, ExternalID: "a", Tracked: true})
+	reader.Register(&hangingReader{})
+	// Not stale yet. last_run_at is unset, so the first tick starts a check
+	// that never ends.
+	_ = s.SetTime(ctx, "last_success_at", base.Add(-11*time.Hour))
+
+	var now atomic.Int64
+	now.Store(base.UnixNano())
+	clockFn := func() time.Time { return time.Unix(0, now.Load()) }
+	sch.Now, sch.Notices.Now, sch.Checker.Now = clockFn, clockFn, clockFn
+	sch.Tick = 10 * time.Millisecond
+
+	runCtx, cancel := context.WithCancel(ctx)
+	defer cancel()
+	go sch.Run(runCtx)
+	time.Sleep(50 * time.Millisecond) // the check is hanging now
+	now.Store(base.Add(2 * time.Hour).UnixNano())
+
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if on, _ := s.NoticeActive(ctx, "stale"); on {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("stale email never sent while a check hung")
 }

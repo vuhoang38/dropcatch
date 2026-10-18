@@ -52,7 +52,7 @@ func (r *Reader) Read(ctx context.Context, b reader.Browser, rawURL string, want
 	return l, reader.Validate(l)
 }
 
-var couponRe = regexp.MustCompile(`(?i)apply\s+(?:s\$\s?([\d,]+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s?%)\s+(?:coupon|voucher)`)
+var couponRe = regexp.MustCompile(`(?i)apply\s+(?:s?\$\s?([\d,]+(?:\.\d+)?)|(\d+(?:\.\d+)?)\s?%)\s+(?:coupon|voucher)`)
 
 // Coupon returns the cents a coupon text takes off price, 0 if none.
 func Coupon(text string, priceCents int64) int64 {

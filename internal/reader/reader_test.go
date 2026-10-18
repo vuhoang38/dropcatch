@@ -53,3 +53,18 @@ func TestFor(t *testing.T) {
 		t.Fatal("want unsupported site error")
 	}
 }
+
+func TestValidateAllowsSomeBadVariants(t *testing.T) {
+	l := good()
+	l.Variants = append(l.Variants, VariantPrice{ExternalID: "2", Name: "Case only"})
+	if err := Validate(l); err != nil {
+		t.Fatalf("one good variant should pass: %v", err)
+	}
+	if got := Invalid(l); len(got) != 1 || got[0] != "2" {
+		t.Fatalf("Invalid = %v", got)
+	}
+	l.Variants = l.Variants[1:]
+	if err := Validate(l); !errors.Is(err, ErrUnreadable) {
+		t.Fatalf("all bad: err = %v", err)
+	}
+}

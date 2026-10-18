@@ -168,3 +168,19 @@ func TestReadWantedModelUsesDisplayParam(t *testing.T) {
 		t.Fatalf("listing = %+v", l)
 	}
 }
+
+func TestParseGetPCVariantSoldOut(t *testing.T) {
+	for _, field := range []string{"has_stock", "is_grayout"} {
+		l, _ := ParseGetPC(fixture(t, func(d map[string]any) {
+			m := d["item"].(map[string]any)["models"].([]any)[0].(map[string]any)
+			if field == "has_stock" {
+				m["has_stock"] = false
+			} else {
+				m["is_grayout"] = true
+			}
+		}))
+		if l.Variants[0].InStock {
+			t.Errorf("%s: variant should be out of stock", field)
+		}
+	}
+}
