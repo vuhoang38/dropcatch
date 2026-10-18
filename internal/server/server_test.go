@@ -251,35 +251,33 @@ func TestNotFound(t *testing.T) {
 
 func TestLoginDone(t *testing.T) {
 	cases := []struct {
-		site, url string
-		want      bool
+		site    string
+		cookies map[string]string
+		want    bool
 	}{
-		{"shopee", "https://shopee.sg/buyer/login", false},
-		{"shopee", "https://shopee.sg/buyer/login?next=x", false},
-		{"shopee", "https://shopee.sg/verify/captcha?x=1", false},
-		{"shopee", "https://shopee.sg/?is_from_login=true", true},
-		{"shopee", "https://shopee.sg/user/account/profile", true},
-		{"lazada", "https://member.lazada.sg/user/login?redirect=x", false},
-		{"lazada", "https://member.lazada.sg/user/register", false},
-		{"lazada", "https://www.lazada.sg/", true},
-		{"lazada", "https://member.lazada.sg/user/profile#/", true},
-		{"shopee", "about:blank", false},
-		{"shopee", "chrome-error://chromewebdata/", false},
+		{"shopee", map[string]string{}, false},
+		{"shopee", map[string]string{"SPC_U": "-"}, false},
+		{"shopee", map[string]string{"SPC_U": ""}, false},
+		{"shopee", map[string]string{"SPC_U": "12345678901"}, true},
+		{"lazada", map[string]string{"lzd_sid": "abc"}, false}, // a session alone isn't a login
+		{"lazada", map[string]string{"lzd_uid": "1234567890"}, true},
+		{"lazada", map[string]string{"SPC_U": "12345678901"}, false},
+		{"amazon", map[string]string{"SPC_U": "1"}, false},
 	}
 	for _, c := range cases {
-		if got := loginDone(c.site)(c.url); got != c.want {
-			t.Errorf("loginDone(%s)(%s) = %v, want %v", c.site, c.url, got, c.want)
+		if got := loginDone(c.site)(c.cookies); got != c.want {
+			t.Errorf("loginDone(%s)(%v) = %v, want %v", c.site, c.cookies, got, c.want)
 		}
 	}
 }
 
 type fakeLogin struct {
 	url  string
-	done func(string) bool
+	done func(map[string]string) bool
 	out  chan struct{}
 }
 
-func (f *fakeLogin) OpenVisible(ctx context.Context, url string, done func(string) bool, timeout time.Duration) error {
+func (f *fakeLogin) OpenVisible(ctx context.Context, url string, done func(map[string]string) bool, timeout time.Duration) error {
 	f.url, f.done = url, done
 	close(f.out)
 	return nil
@@ -294,7 +292,7 @@ func TestLoginMarksSessionUnknownAndPassesDone(t *testing.T) {
 		t.Fatalf("login = %d", code)
 	}
 	<-login.out
-	if login.done == nil || !login.done("https://shopee.sg/") {
+	if login.done == nil || !login.done(map[string]string{"SPC_U": "12345678901"}) {
 		t.Fatal("login window got no way to notice a finished login")
 	}
 	deadline := time.Now().Add(time.Second)
@@ -309,9 +307,9 @@ func TestLoginMarksSessionUnknownAndPassesDone(t *testing.T) {
 
 type loginThatSucceeds struct{ out chan struct{} }
 
-func (l *loginThatSucceeds) OpenVisible(ctx context.Context, url string, done func(string) bool, timeout time.Duration) error {
+func (l *loginThatSucceeds) OpenVisible(ctx context.Context, url string, done func(map[string]string) bool, timeout time.Duration) error {
 	defer close(l.out)
-	done("https://shopee.sg/") // you reach the home page, logged in
+	done(map[string]string{"SPC_U": "12345678901"}) // Shopee set your user id
 	return nil
 }
 

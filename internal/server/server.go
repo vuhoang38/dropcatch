@@ -22,7 +22,8 @@ import (
 
 // LoginOpener shows a visible Chrome window so you can log in.
 type LoginOpener interface {
-	OpenVisible(ctx context.Context, url string, done func(currentURL string) bool, timeout time.Duration) error
+	// done gets Chrome's cookies, by name, and reports whether you're logged in.
+	OpenVisible(ctx context.Context, url string, done func(cookies map[string]string) bool, timeout time.Duration) error
 }
 
 type Deps struct {

@@ -4,7 +4,6 @@ import (
 	"context"
 	"log"
 	"net/http"
-	"net/url"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -100,24 +99,20 @@ var loginURLs = map[string]string{
 	"lazada": "https://member.lazada.sg/user/login",
 }
 
-// loginDone tells, from the page address, that you finished logging in to
-// site: you're on that site's pages and no longer on its login, sign up or
-// verification pages.
-func loginDone(site string) func(currentURL string) bool {
-	return func(raw string) bool {
-		u, err := url.Parse(raw)
-		if err != nil || (u.Scheme != "https" && u.Scheme != "http") {
-			return false
-		}
-		switch site {
-		case "shopee":
-			return strings.HasSuffix(u.Host, "shopee.sg") &&
-				!strings.HasPrefix(u.Path, "/buyer/") && !strings.HasPrefix(u.Path, "/verify/")
-		case "lazada":
-			return strings.HasSuffix(u.Host, "lazada.sg") &&
-				u.Path != "/user/login" && u.Path != "/user/register" && !strings.Contains(u.Path, "punish")
-		}
-		return false
+// loginCookies names the cookie each site sets to your numeric user id once
+// you're really logged in. Page addresses can't tell: Lazada's login page
+// redirects to an address of its own, and Google sign in adds more on the way.
+var loginCookies = map[string]string{
+	"shopee": "SPC_U",
+	"lazada": "lzd_uid",
+}
+
+// loginDone tells, from Chrome's cookies, that you finished logging in.
+func loginDone(site string) func(cookies map[string]string) bool {
+	name, ok := loginCookies[site]
+	return func(cookies map[string]string) bool {
+		v := cookies[name]
+		return ok && v != "" && strings.Trim(v, "0123456789") == ""
 	}
 }
 
@@ -149,8 +144,8 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 		defer s.loginOpen.Store(false)
 		var loggedIn atomic.Bool
 		isDone := loginDone(site)
-		done := func(u string) bool {
-			if isDone(u) {
+		done := func(cookies map[string]string) bool {
+			if isDone(cookies) {
 				loggedIn.Store(true)
 				return true
 			}

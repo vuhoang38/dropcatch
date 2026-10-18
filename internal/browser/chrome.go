@@ -25,6 +25,8 @@ import (
 	cdpbrowser "github.com/chromedp/cdproto/browser"
 	"github.com/chromedp/cdproto/network"
 	"github.com/chromedp/cdproto/page"
+	"github.com/chromedp/cdproto/storage"
+	"github.com/chromedp/cdproto/target"
 	"github.com/chromedp/chromedp"
 
 	"dropcatch/internal/reader"
@@ -245,9 +247,10 @@ func showWindow(ctx context.Context, show bool) error {
 }
 
 // OpenVisible shows the Chrome window at url so you can log in or solve a
-// captcha. It returns when done reports true for the current URL, when you
-// close the window, or after timeout. Then the window is minimized again.
-func (c *Chrome) OpenVisible(ctx context.Context, url string, done func(currentURL string) bool, timeout time.Duration) error {
+// captcha. It returns when done reports true for Chrome's cookies, when you
+// close the window, or after timeout. Then any popups close and the window is
+// minimized again.
+func (c *Chrome) OpenVisible(ctx context.Context, url string, done func(cookies map[string]string) bool, timeout time.Duration) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	if err := c.ensure(); err != nil {
@@ -267,18 +270,19 @@ func (c *Chrome) OpenVisible(ctx context.Context, url string, done func(currentU
 	closed := false
 	for run.Err() == nil {
 		time.Sleep(2 * time.Second)
-		cur, open, err := c.tabState(run)
+		_, open, err := c.tabState(run)
 		if err != nil || !open {
 			closed = true // you closed the window, or Chrome quit
 			break
 		}
-		if done != nil && done(cur) {
-			time.Sleep(3 * time.Second) // let cookies settle
+		if done != nil && done(c.cookies(run)) {
+			time.Sleep(3 * time.Second) // let the site finish its redirects
 			break
 		}
 	}
 
 	if !closed && c.tab.Err() == nil {
+		c.closeOtherTabs()
 		hide, cancelHide := context.WithTimeout(c.tab, 10*time.Second)
 		err := showWindow(hide, false)
 		cancelHide()
@@ -314,6 +318,41 @@ func (c *Chrome) tabState(ctx context.Context) (url string, open bool, err error
 		}
 	}
 	return "", false, nil
+}
+
+// cookies returns every cookie Chrome holds, by name. Like tabState, it asks
+// Chrome rather than the page.
+func (c *Chrome) cookies(ctx context.Context) map[string]string {
+	ask, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	out := map[string]string{}
+	_ = chromedp.Run(ask, chromedp.ActionFunc(func(ctx context.Context) error {
+		cs, err := storage.GetCookies().Do(ctx)
+		for _, ck := range cs {
+			out[ck.Name] = ck.Value
+		}
+		return err
+	}))
+	return out
+}
+
+// closeOtherTabs closes every page but ours, such as a Google sign in popup
+// left behind after a login.
+func (c *Chrome) closeOtherTabs() {
+	ctx, cancel := context.WithTimeout(c.tab, 10*time.Second)
+	defer cancel()
+	infos, err := chromedp.Targets(ctx)
+	if err != nil {
+		return
+	}
+	ours := chromedp.FromContext(c.tab).Target.TargetID
+	for _, t := range infos {
+		if t.Type == "page" && t.TargetID != ours {
+			_ = chromedp.Run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
+				return target.CloseTarget(t.TargetID).Do(ctx)
+			}))
+		}
+	}
 }
 
 // quietErrorf drops chromedp's complaints about event types newer Chrome

@@ -112,9 +112,7 @@ func TestOpenVisibleReusesChrome(t *testing.T) {
 		t.Fatalf("want one main Chrome process, got %v", before)
 	}
 
-	err := c.OpenVisible(ctx, "https://example.org/", func(u string) bool {
-		return strings.Contains(u, "example.org")
-	}, time.Minute)
+	err := c.OpenVisible(ctx, "https://example.org/", func(map[string]string) bool { return true }, time.Minute)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -163,7 +161,7 @@ func TestWindowStaysHidden(t *testing.T) {
 	}
 
 	// The login window shows, then hides again.
-	err := c.OpenVisible(ctx, "https://example.net/", func(u string) bool {
+	err := c.OpenVisible(ctx, "https://example.net/", func(map[string]string) bool {
 		if n := windowsVisible(t, profile); n != 1 {
 			t.Errorf("login window: %d visible, want 1", n)
 		}
@@ -258,5 +256,46 @@ func TestOpenVisibleSurvivesBusyPage(t *testing.T) {
 		if !before[pid] {
 			t.Fatal("Chrome was relaunched, losing the login page")
 		}
+	}
+}
+
+// Signing in with Google opens a popup and takes a while. The window must
+// wait for the login cookie, then close the popup and hide.
+func TestOpenVisibleWaitsForLoginCookieAndClosesPopups(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		if r.URL.Path == "/popup" {
+			w.Write([]byte(`<html><body>sign in with google</body></html>`))
+			return
+		}
+		w.Write([]byte(`<html><body>login<script>
+			window.open("/popup", "google", "width=400,height=400");
+			setTimeout(() => { document.cookie = "testuid=1234567890; path=/" }, 8000);
+		</script></body></html>`))
+	}))
+	defer srv.Close()
+
+	profile := t.TempDir()
+	c := New(Config{ProfileDir: profile, Settle: time.Second})
+	defer c.Close()
+	if err := c.Start(); err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	err := c.OpenVisible(context.Background(), srv.URL, func(cookies map[string]string) bool {
+		return cookies["testuid"] == "1234567890"
+	}, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	took := time.Since(start)
+	if took < 8*time.Second {
+		t.Fatalf("hid the window after %s, before the login finished", took)
+	}
+	if took > 30*time.Second {
+		t.Fatalf("took %s to notice the login cookie", took)
+	}
+	if n := windowsVisible(t, profile); n > 0 {
+		t.Fatalf("%d Chrome window(s) still on screen after login", n)
 	}
 }
