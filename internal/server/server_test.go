@@ -253,6 +253,11 @@ func TestStaticFallback(t *testing.T) {
 	if code, _ := do(t, h, "GET", "/api/nope", ""); code != 404 {
 		t.Fatalf("api 404 = %d", code)
 	}
+	// A tab left open across an update asks for the old build's files. Those
+	// must fail plainly, not come back as the app's HTML.
+	if code, body := do(t, h, "GET", "/assets/page-old.js", ""); code != 404 || strings.Contains(body, "<html>") {
+		t.Fatalf("old asset = %d %q", code, body)
+	}
 }
 
 func TestNotFound(t *testing.T) {

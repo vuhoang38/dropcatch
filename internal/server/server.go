@@ -84,6 +84,12 @@ func spa(static fs.FS) http.Handler {
 				files.ServeHTTP(w, r)
 				return
 			}
+			// A build file that's gone belongs to an older build. Say so,
+			// so the dashboard knows to reload instead of parsing HTML as code.
+			if strings.HasPrefix(name, "assets/") {
+				http.NotFound(w, r)
+				return
+			}
 		}
 		b, err := fs.ReadFile(static, "index.html")
 		if err != nil {
