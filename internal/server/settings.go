@@ -156,8 +156,9 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 			}
 			return false
 		}
-		// Hides again once you're logged in or close the window, up to 10 minutes.
-		if err := s.Login.OpenVisible(context.Background(), loginURL, done, 10*time.Minute); err != nil {
+		// Hides again once you're logged in or close the window, up to 30 minutes,
+		// which leaves time for a slow verification code.
+		if err := s.Login.OpenVisible(context.Background(), loginURL, done, 30*time.Minute); err != nil {
 			log.Printf("login window: %v", err)
 		}
 		st := store.SessionUnknown // you closed the window; the next check will tell

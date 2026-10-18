@@ -40,6 +40,13 @@ describe('SettingsPage', () => {
     expect(api.put).toHaveBeenCalledWith('/settings', { ...settings, dropPct: 25 })
   })
 
+  it('offers to log in again where you are already logged in', async () => {
+    renderWithProviders(<SettingsPage />)
+
+    expect(await screen.findByRole('button', { name: 'Log in again to Shopee' })).toHaveTextContent('Log in again')
+    expect(screen.getByRole('button', { name: 'Log in to Lazada' })).toHaveTextContent(/^Log in$/)
+  })
+
   it('shows each login and opens a login window on request', async () => {
     renderWithProviders(<SettingsPage />)
 

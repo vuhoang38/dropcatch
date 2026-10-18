@@ -264,27 +264,21 @@ func (c *Chrome) OpenVisible(ctx context.Context, url string, done func(currentU
 	if err := chromedp.Run(run, chromedp.Navigate(url)); err != nil {
 		return err
 	}
-	misses := 0
-	for run.Err() == nil && misses < 2 {
+	closed := false
+	for run.Err() == nil {
 		time.Sleep(2 * time.Second)
-		// Once you close the window, asking the tab anything hangs rather
-		// than failing, so each question gets a short deadline.
-		var cur string
-		poll, cancelPoll := context.WithTimeout(run, 5*time.Second)
-		err := chromedp.Run(poll, chromedp.Location(&cur))
-		cancelPoll()
-		if err != nil {
-			misses++
-			continue
+		cur, open, err := c.tabState(run)
+		if err != nil || !open {
+			closed = true // you closed the window, or Chrome quit
+			break
 		}
-		misses = 0
 		if done != nil && done(cur) {
 			time.Sleep(3 * time.Second) // let cookies settle
 			break
 		}
 	}
 
-	if closed := misses >= 2; !closed && c.tab.Err() == nil {
+	if !closed && c.tab.Err() == nil {
 		hide, cancelHide := context.WithTimeout(c.tab, 10*time.Second)
 		err := showWindow(hide, false)
 		cancelHide()
@@ -297,6 +291,29 @@ func (c *Chrome) OpenVisible(ctx context.Context, url string, done func(currentU
 	// anyway, rather than taking focus during a later check.
 	c.shutdown()
 	return c.ensure()
+}
+
+// tabState asks Chrome itself, not the page, whether the tab still exists and
+// which address it shows. A busy page, a redirect or a dialog can stall the
+// page's scripts for many seconds, and that must not look like a closed
+// window.
+func (c *Chrome) tabState(ctx context.Context) (url string, open bool, err error) {
+	id := chromedp.FromContext(c.tab).Target.TargetID
+	ask, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	infos, err := chromedp.Targets(ask)
+	if err != nil {
+		if ctx.Err() != nil {
+			return "", true, nil // our own deadline, not a closed window
+		}
+		return "", false, err
+	}
+	for _, t := range infos {
+		if t.TargetID == id {
+			return t.URL, true, nil
+		}
+	}
+	return "", false, nil
 }
 
 // quietErrorf drops chromedp's complaints about event types newer Chrome

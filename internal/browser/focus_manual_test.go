@@ -10,6 +10,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -225,5 +226,37 @@ func TestOpenVisibleReturnsWhenWindowClosed(t *testing.T) {
 	}
 	if n := windowsVisible(t, profile); n > 0 {
 		t.Fatalf("%d Chrome window(s) on screen after relaunch", n)
+	}
+}
+
+// A login page that is busy (here, showing a dialog that blocks its scripts)
+// must not be mistaken for a closed window.
+func TestOpenVisibleSurvivesBusyPage(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/html")
+		w.Write([]byte(`<html><body>login<script>setTimeout(() => alert("verify"), 500)</script></body></html>`))
+	}))
+	defer srv.Close()
+
+	profile := t.TempDir()
+	c := New(Config{ProfileDir: profile, Settle: time.Second})
+	defer c.Close()
+	if err := c.Start(); err != nil {
+		t.Fatal(err)
+	}
+	before := chromePIDs(profile)
+
+	start := time.Now()
+	err := c.OpenVisible(context.Background(), srv.URL, nil, 25*time.Second)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if took := time.Since(start); took < 24*time.Second {
+		t.Fatalf("gave up on an open, busy login window after %s", took)
+	}
+	for pid := range chromePIDs(profile) {
+		if !before[pid] {
+			t.Fatal("Chrome was relaunched, losing the login page")
+		}
 	}
 }
