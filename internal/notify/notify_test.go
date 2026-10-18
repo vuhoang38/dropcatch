@@ -108,3 +108,23 @@ func TestNoticesOnce(t *testing.T) {
 		t.Fatalf("sent %d, want 2", len(rec.sent))
 	}
 }
+
+func TestSettingsMailerUsesStoredKey(t *testing.T) {
+	var auth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		auth = r.Header.Get("Authorization")
+	}))
+	defer srv.Close()
+	s, _ := store.Open(":memory:")
+	defer s.Close()
+	set := store.DefaultSettings()
+	set.ResendAPIKey = "re_123"
+	_ = s.PutSettings(context.Background(), set)
+	m := &SettingsMailer{Store: s, BaseURL: srv.URL}
+	if err := m.Send(context.Background(), "me@x.com", "s", "t"); err != nil {
+		t.Fatal(err)
+	}
+	if auth != "Bearer re_123" {
+		t.Fatalf("auth = %q", auth)
+	}
+}

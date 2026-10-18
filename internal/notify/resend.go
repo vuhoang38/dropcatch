@@ -10,6 +10,8 @@ import (
 	"io"
 	"net/http"
 	"time"
+
+	"dropcatch/internal/store"
 )
 
 type Mailer interface {
@@ -57,4 +59,21 @@ func (r *Resend) Send(ctx context.Context, to, subject, text string) error {
 		return fmt.Errorf("resend: %s: %s", resp.Status, msg)
 	}
 	return nil
+}
+
+// SettingsMailer sends through Resend with whatever key is in settings right
+// now, so changing the key in the dashboard takes effect at once.
+type SettingsMailer struct {
+	Store interface {
+		GetSettings(ctx context.Context) (store.Settings, error)
+	}
+	BaseURL string
+}
+
+func (m *SettingsMailer) Send(ctx context.Context, to, subject, text string) error {
+	s, err := m.Store.GetSettings(ctx)
+	if err != nil {
+		return err
+	}
+	return (&Resend{APIKey: s.ResendAPIKey, BaseURL: m.BaseURL}).Send(ctx, to, subject, text)
 }
