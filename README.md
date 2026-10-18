@@ -4,7 +4,7 @@ Dropcatch tracks what products really cost on Shopee, Lazada, Amazon SG and Cour
 
 It runs on your Mac and checks prices every few hours while your laptop is awake.
 
-It reads pages with its own copy of Chrome, kept offscreen. That Chrome starts once when Dropcatch starts and stays open in the background, so checks never pull you out of what you're typing. You'll see it in the Dock. Leave it running.
+It reads pages with its own copy of Chrome. That Chrome starts once when Dropcatch starts, minimizes itself to the Dock, and stays there, so checks never pop up a window or pull you out of what you're typing. Leave it running. The Settings page brings its window back when you need to log in.
 
 ## Install
 

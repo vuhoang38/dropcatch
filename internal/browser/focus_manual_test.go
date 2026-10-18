@@ -123,3 +123,51 @@ func TestOpenVisibleReusesChrome(t *testing.T) {
 		}
 	}
 }
+
+// windowsVisible reports how many of Chrome's windows are on screen and not
+// minimized.
+func windowsVisible(t *testing.T, profile string) int {
+	visible := 0
+	for pid := range chromePIDs(profile) {
+		out, err := exec.Command("osascript", "-e",
+			`tell application "System Events" to tell (first process whose unix id is `+strconv.Itoa(pid)+`) to get value of attribute "AXMinimized" of every window`).Output()
+		if err != nil {
+			t.Fatalf("osascript: %v", err)
+		}
+		for _, v := range strings.Split(strings.TrimSpace(string(out)), ",") {
+			if strings.TrimSpace(v) == "false" {
+				visible++
+			}
+		}
+	}
+	return visible
+}
+
+func TestWindowStaysHidden(t *testing.T) {
+	profile := t.TempDir()
+	c := New(Config{ProfileDir: profile, Settle: time.Second})
+	defer c.Close()
+	ctx := context.Background()
+	for _, u := range []string{"https://example.com/", "https://example.org/"} {
+		if _, err := c.Load(ctx, u, nil); err != nil {
+			t.Fatal(err)
+		}
+		if n := windowsVisible(t, profile); n > 0 {
+			t.Fatalf("after loading %s, %d Chrome window(s) are on screen", u, n)
+		}
+	}
+
+	// The login window shows, then hides again.
+	err := c.OpenVisible(ctx, "https://example.net/", func(u string) bool {
+		if n := windowsVisible(t, profile); n != 1 {
+			t.Errorf("login window: %d visible, want 1", n)
+		}
+		return true
+	}, time.Minute)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := windowsVisible(t, profile); n > 0 {
+		t.Fatalf("after login, %d Chrome window(s) are on screen", n)
+	}
+}

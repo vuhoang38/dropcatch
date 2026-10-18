@@ -2,9 +2,15 @@
 //
 // On macOS, launching Chrome or opening a window or tab brings Chrome to the
 // front, which takes your keyboard away mid sentence. Loading a new page in a
-// tab that already exists doesn't. So Chrome starts once, offscreen, and every
-// page load reuses its one tab. Checked by hand on 2026-10-18, see
-// focus_manual_test.go.
+// tab that already exists doesn't. So Chrome starts once and every page load
+// reuses its one tab.
+//
+// macOS also ignores --window-position offscreen and opens the window at the
+// top left of your screen, and won't let a window move fully offscreen. So
+// the window is minimized to the Dock right after launch instead, with
+// Chrome's background throttling off so pages load the same.
+//
+// Checked by hand on 2026-10-18, see focus_manual_test.go.
 package browser
 
 import (
@@ -103,7 +109,11 @@ func (c *Chrome) ensure() error {
 		chromedp.NoDefaultBrowserCheck,
 		chromedp.Flag("disable-blink-features", "AutomationControlled"),
 		chromedp.WindowSize(1280, 900),
-		chromedp.Flag("window-position", "-2400,-2400"),
+		// A minimized window counts as hidden, and Chrome would otherwise
+		// slow its timers and rendering.
+		chromedp.Flag("disable-background-timer-throttling", true),
+		chromedp.Flag("disable-backgrounding-occluded-windows", true),
+		chromedp.Flag("disable-renderer-backgrounding", true),
 	}
 	actx, cancelAlloc := chromedp.NewExecAllocator(context.Background(), opts...)
 	// The first context on a fresh browser attaches to its startup tab, so
@@ -119,6 +129,10 @@ func (c *Chrome) ensure() error {
 	if err := chromedp.Run(tab, network.Enable()); err != nil {
 		stop()
 		return fmt.Errorf("start chrome: %w", err)
+	}
+	if err := showWindow(tab, false); err != nil {
+		stop()
+		return fmt.Errorf("hide chrome window: %w", err)
 	}
 	c.tab, c.stop = tab, stop
 	return nil
@@ -209,25 +223,30 @@ func (c *Chrome) blank() {
 	_ = chromedp.Run(ctx, chromedp.Navigate("about:blank"))
 }
 
-func (c *Chrome) moveWindow(ctx context.Context, left, top int64, front bool) error {
+// showWindow puts the window on screen and in front, or minimizes it.
+func showWindow(ctx context.Context, show bool) error {
 	return chromedp.Run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
 		id, _, err := cdpbrowser.GetWindowForTarget().Do(ctx)
 		if err != nil {
 			return err
 		}
-		err = cdpbrowser.SetWindowBounds(id, &cdpbrowser.Bounds{
-			Left: left, Top: top, Width: 1280, Height: 900, WindowState: cdpbrowser.WindowStateNormal,
-		}).Do(ctx)
-		if err != nil || !front {
+		if !show {
+			return cdpbrowser.SetWindowBounds(id, &cdpbrowser.Bounds{WindowState: cdpbrowser.WindowStateMinimized}).Do(ctx)
+		}
+		// Leave minimized first. A state change can't carry a position.
+		if err := cdpbrowser.SetWindowBounds(id, &cdpbrowser.Bounds{WindowState: cdpbrowser.WindowStateNormal}).Do(ctx); err != nil {
+			return err
+		}
+		if err := cdpbrowser.SetWindowBounds(id, &cdpbrowser.Bounds{Left: 120, Top: 80, Width: 1280, Height: 900}).Do(ctx); err != nil {
 			return err
 		}
 		return page.BringToFront().Do(ctx)
 	}))
 }
 
-// OpenVisible moves the Chrome window on screen at url so you can log in or
-// solve a captcha. It returns when done reports true for the current URL, when
-// you close the window, or after timeout. Then the window goes back offscreen.
+// OpenVisible shows the Chrome window at url so you can log in or solve a
+// captcha. It returns when done reports true for the current URL, when you
+// close the window, or after timeout. Then the window is minimized again.
 func (c *Chrome) OpenVisible(ctx context.Context, url string, done func(currentURL string) bool, timeout time.Duration) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
@@ -239,7 +258,7 @@ func (c *Chrome) OpenVisible(ctx context.Context, url string, done func(currentU
 	defer cancel()
 	defer context.AfterFunc(ctx, cancel)()
 
-	if err := c.moveWindow(run, 120, 80, true); err != nil {
+	if err := showWindow(run, true); err != nil {
 		return err
 	}
 	if err := chromedp.Run(run, chromedp.Navigate(url)); err != nil {
@@ -259,7 +278,7 @@ func (c *Chrome) OpenVisible(ctx context.Context, url string, done func(currentU
 
 	if c.tab.Err() == nil {
 		hide, cancelHide := context.WithTimeout(c.tab, 10*time.Second)
-		err := c.moveWindow(hide, -2400, -2400, false)
+		err := showWindow(hide, false)
 		cancelHide()
 		if err == nil {
 			c.blank()
