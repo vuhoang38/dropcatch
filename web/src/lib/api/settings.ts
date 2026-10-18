@@ -31,6 +31,8 @@ export function sessionsQueryOptions() {
   return queryOptions({
     queryKey: settingsKeys.sessions(),
     queryFn: () => api.get<Session[]>('/sessions'),
+    // A login finishes in another window, so poll to notice it.
+    refetchInterval: 5000,
   })
 }
 

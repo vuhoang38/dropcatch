@@ -175,7 +175,7 @@ function Logins() {
               disabled={login.isPending}
               onClick={() =>
                 login.mutate(s.site, {
-                  onSuccess: () => toast.success('A Chrome window opened. Log in there, then close it.'),
+                  onSuccess: () => toast.success('A Chrome window opened. Log in there. It hides itself once you are in.'),
                   onError: (error) => toast.error(error.message),
                 })
               }

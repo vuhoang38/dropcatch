@@ -4,7 +4,9 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"dropcatch/internal/notify"
@@ -98,6 +100,27 @@ var loginURLs = map[string]string{
 	"lazada": "https://member.lazada.sg/user/login",
 }
 
+// loginDone tells, from the page address, that you finished logging in to
+// site: you're on that site's pages and no longer on its login, sign up or
+// verification pages.
+func loginDone(site string) func(currentURL string) bool {
+	return func(raw string) bool {
+		u, err := url.Parse(raw)
+		if err != nil || (u.Scheme != "https" && u.Scheme != "http") {
+			return false
+		}
+		switch site {
+		case "shopee":
+			return strings.HasSuffix(u.Host, "shopee.sg") &&
+				!strings.HasPrefix(u.Path, "/buyer/") && !strings.HasPrefix(u.Path, "/verify/")
+		case "lazada":
+			return strings.HasSuffix(u.Host, "lazada.sg") &&
+				u.Path != "/user/login" && u.Path != "/user/register" && !strings.Contains(u.Path, "punish")
+		}
+		return false
+	}
+}
+
 func (s *server) sessions(w http.ResponseWriter, r *http.Request) {
 	out := []Session{}
 	for _, site := range []string{"shopee", "lazada"} {
@@ -113,7 +136,7 @@ func (s *server) sessions(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) login(w http.ResponseWriter, r *http.Request) {
 	site := r.PathValue("site")
-	url, ok := loginURLs[site]
+	loginURL, ok := loginURLs[site]
 	if !ok || s.Login == nil {
 		writeError(w, http.StatusNotFound, "Not found")
 		return
@@ -124,12 +147,24 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 	}
 	go func() {
 		defer s.loginOpen.Store(false)
-		// Stays open until you close the window, up to 10 minutes.
-		if err := s.Login.OpenVisible(context.Background(), url, nil, 10*time.Minute); err != nil {
+		var loggedIn atomic.Bool
+		isDone := loginDone(site)
+		done := func(u string) bool {
+			if isDone(u) {
+				loggedIn.Store(true)
+				return true
+			}
+			return false
+		}
+		// Hides again once you're logged in or close the window, up to 10 minutes.
+		if err := s.Login.OpenVisible(context.Background(), loginURL, done, 10*time.Minute); err != nil {
 			log.Printf("login window: %v", err)
 		}
-		// Let the next check find out whether it worked.
-		_ = s.Store.SetSession(context.Background(), site, store.SessionUnknown)
+		st := store.SessionUnknown // you closed the window; the next check will tell
+		if loggedIn.Load() {
+			st = store.SessionOK
+		}
+		_ = s.Store.SetSession(context.Background(), site, st)
 	}()
 	w.WriteHeader(http.StatusAccepted)
 }

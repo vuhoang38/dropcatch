@@ -8,7 +8,11 @@ package browser
 
 import (
 	"context"
+	"encoding/json"
+	"net/http"
+	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -169,5 +173,57 @@ func TestWindowStaysHidden(t *testing.T) {
 	}
 	if n := windowsVisible(t, profile); n > 0 {
 		t.Fatalf("after login, %d Chrome window(s) are on screen", n)
+	}
+}
+
+// closeAllTabs closes every page the way you would by closing the window.
+func closeAllTabs(t *testing.T, profile string) {
+	b, err := os.ReadFile(filepath.Join(profile, "DevToolsActivePort"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := strings.SplitN(string(b), "\n", 2)[0]
+	resp, err := http.Get("http://127.0.0.1:" + port + "/json/list")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	var targets []struct{ ID, Type string }
+	_ = json.NewDecoder(resp.Body).Decode(&targets)
+	for _, tg := range targets {
+		if tg.Type == "page" {
+			r, err := http.Get("http://127.0.0.1:" + port + "/json/close/" + tg.ID)
+			if err == nil {
+				r.Body.Close()
+			}
+		}
+	}
+}
+
+func TestOpenVisibleReturnsWhenWindowClosed(t *testing.T) {
+	profile := t.TempDir()
+	c := New(Config{ProfileDir: profile, Settle: time.Second})
+	defer c.Close()
+	ctx := context.Background()
+	if err := c.Start(); err != nil {
+		t.Fatal(err)
+	}
+	go func() {
+		time.Sleep(4 * time.Second)
+		closeAllTabs(t, profile)
+	}()
+	start := time.Now()
+	if err := c.OpenVisible(ctx, "https://example.org/", nil, time.Minute); err != nil {
+		t.Fatal(err)
+	}
+	if took := time.Since(start); took > 20*time.Second {
+		t.Fatalf("OpenVisible took %s after the window closed", took)
+	}
+	// Chrome comes back hidden and still works.
+	if _, err := c.Load(ctx, "https://example.net/", nil); err != nil {
+		t.Fatal(err)
+	}
+	if n := windowsVisible(t, profile); n > 0 {
+		t.Fatalf("%d Chrome window(s) on screen after relaunch", n)
 	}
 }

@@ -264,19 +264,27 @@ func (c *Chrome) OpenVisible(ctx context.Context, url string, done func(currentU
 	if err := chromedp.Run(run, chromedp.Navigate(url)); err != nil {
 		return err
 	}
-	for run.Err() == nil {
+	misses := 0
+	for run.Err() == nil && misses < 2 {
 		time.Sleep(2 * time.Second)
+		// Once you close the window, asking the tab anything hangs rather
+		// than failing, so each question gets a short deadline.
 		var cur string
-		if err := chromedp.Run(run, chromedp.Location(&cur)); err != nil {
-			break // you closed the window, or time ran out
+		poll, cancelPoll := context.WithTimeout(run, 5*time.Second)
+		err := chromedp.Run(poll, chromedp.Location(&cur))
+		cancelPoll()
+		if err != nil {
+			misses++
+			continue
 		}
+		misses = 0
 		if done != nil && done(cur) {
 			time.Sleep(3 * time.Second) // let cookies settle
 			break
 		}
 	}
 
-	if c.tab.Err() == nil {
+	if closed := misses >= 2; !closed && c.tab.Err() == nil {
 		hide, cancelHide := context.WithTimeout(c.tab, 10*time.Second)
 		err := showWindow(hide, false)
 		cancelHide()
