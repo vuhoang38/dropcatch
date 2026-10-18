@@ -318,6 +318,45 @@ func TestLoginMarksSessionUnknownAndPassesDone(t *testing.T) {
 	t.Fatal("session not reset after the login window closed")
 }
 
+// Shopee shows its check on product pages, and you're still logged in, so
+// the window must stay until you close it.
+func TestVerifyOpensAProductPageAndWaitsForYou(t *testing.T) {
+	_, s, _ := setup(t)
+	ctx := context.Background()
+	p, _ := s.CreateProduct(ctx, "AirPods Pro 3")
+	_, _ = s.CreateLink(ctx, p.ID, "https://shopee.sg/product/1/2", "shopee", "", "")
+	login := &fakeLogin{out: make(chan struct{})}
+	h := New(Deps{Store: s, Login: login, Now: func() time.Time { return now }}, fstest.MapFS{})
+	_ = s.SetSession(ctx, "shopee", store.SessionBlocked)
+	if code, _ := do(t, h, "POST", "/api/sessions/shopee/login", ""); code != 202 {
+		t.Fatalf("verify = %d", code)
+	}
+	<-login.out
+	if login.url != "https://shopee.sg/product/1/2" || login.done != nil {
+		t.Fatalf("url = %q, done set = %v", login.url, login.done != nil)
+	}
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		if st, _ := s.GetSession(ctx, "shopee"); st == store.SessionUnknown {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("session not reset after the verify window closed")
+}
+
+func TestVerifyWithoutLinksOpensTheHomePage(t *testing.T) {
+	_, s, _ := setup(t)
+	login := &fakeLogin{out: make(chan struct{})}
+	h := New(Deps{Store: s, Login: login, Now: func() time.Time { return now }}, fstest.MapFS{})
+	_ = s.SetSession(context.Background(), "shopee", store.SessionBlocked)
+	do(t, h, "POST", "/api/sessions/shopee/login", "")
+	<-login.out
+	if login.url != "https://shopee.sg/" || login.done != nil {
+		t.Fatalf("url = %q, done set = %v", login.url, login.done != nil)
+	}
+}
+
 type loginThatSucceeds struct{ out chan struct{} }
 
 func (l *loginThatSucceeds) OpenVisible(ctx context.Context, url string, done func(map[string]string) bool, timeout time.Duration) error {

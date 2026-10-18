@@ -164,7 +164,9 @@ function Logins() {
       </div>
       <ul className="grid gap-3">
         {(data ?? []).map((s) => {
-          const action = s.status === 'ok' ? 'Log in again' : 'Log in'
+          const verify = s.status === 'blocked'
+          const action = verify ? 'Verify' : s.status === 'ok' ? 'Log in again' : 'Log in'
+          const label = verify ? `Verify ${siteName(s.site)}` : `${action} to ${siteName(s.site)}`
           return (
             <li key={s.site} className="flex flex-wrap items-center gap-3">
               <span className="text-label w-24">{siteName(s.site)}</span>
@@ -173,11 +175,16 @@ function Logins() {
                 size="sm"
                 variant="outline"
                 className="ml-auto"
-                aria-label={`${action} to ${siteName(s.site)}`}
+                aria-label={label}
                 disabled={login.isPending}
                 onClick={() =>
                   login.mutate(s.site, {
-                    onSuccess: () => toast.success('A Chrome window opened. Log in there. It hides itself once you are in.'),
+                    onSuccess: () =>
+                      toast.success(
+                        verify
+                          ? 'A Chrome window opened on one of your products. Solve the check there, then close the window.'
+                          : 'A Chrome window opened. Log in there. It hides itself once you are in.',
+                      ),
                     onError: (error) => toast.error(error.message),
                   })
                 }

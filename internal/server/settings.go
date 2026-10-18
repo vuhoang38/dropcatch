@@ -99,6 +99,12 @@ var loginURLs = map[string]string{
 	"lazada": "https://member.lazada.sg/user/login",
 }
 
+// Home pages, for a verification check when you track nothing on the site yet.
+var homeURLs = map[string]string{
+	"shopee": "https://shopee.sg/",
+	"lazada": "https://www.lazada.sg/",
+}
+
 // loginCookies names the cookie each site sets to your numeric user id once
 // you're really logged in. Page addresses can't tell: Lazada's login page
 // redirects to an address of its own, and Google sign in adds more on the way.
@@ -136,6 +142,26 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "Not found")
 		return
 	}
+	// A verification check shows on product pages, not the login page, and
+	// you're usually still logged in, so the login cookie can't tell when
+	// you're done. Open a product and wait for you to close the window.
+	st, err := s.Store.GetSession(r.Context(), site)
+	if err != nil {
+		fail(w, err)
+		return
+	}
+	verify := st == store.SessionBlocked
+	openURL := loginURL
+	if verify {
+		openURL, err = s.Store.LatestLinkURL(r.Context(), site)
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		if openURL == "" {
+			openURL = homeURLs[site]
+		}
+	}
 	if !s.loginOpen.CompareAndSwap(false, true) {
 		writeError(w, http.StatusConflict, "A login window is already open")
 		return
@@ -143,17 +169,20 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer s.loginOpen.Store(false)
 		var loggedIn atomic.Bool
-		isDone := loginDone(site)
-		done := func(cookies map[string]string) bool {
-			if isDone(cookies) {
-				loggedIn.Store(true)
-				return true
+		var done func(cookies map[string]string) bool
+		if !verify {
+			isDone := loginDone(site)
+			done = func(cookies map[string]string) bool {
+				if isDone(cookies) {
+					loggedIn.Store(true)
+					return true
+				}
+				return false
 			}
-			return false
 		}
 		// Hides again once you're logged in or close the window, up to 30 minutes,
 		// which leaves time for a slow verification code.
-		if err := s.Login.OpenVisible(context.Background(), loginURL, done, 30*time.Minute); err != nil {
+		if err := s.Login.OpenVisible(context.Background(), openURL, done, 30*time.Minute); err != nil {
 			log.Printf("login window: %v", err)
 		}
 		st := store.SessionUnknown // you closed the window; the next check will tell

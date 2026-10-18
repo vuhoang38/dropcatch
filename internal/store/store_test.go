@@ -275,3 +275,19 @@ func TestLatestReadingsByTimeNotInsertOrder(t *testing.T) {
 		t.Fatalf("latest = %d, want 28000", got)
 	}
 }
+
+func TestLatestLinkURL(t *testing.T) {
+	s := newStore(t)
+	ctx := context.Background()
+	if u, err := s.LatestLinkURL(ctx, "shopee"); err != nil || u != "" {
+		t.Fatalf("empty = %q %v", u, err)
+	}
+	p, _ := s.CreateProduct(ctx, "AirPods Pro 3")
+	old, _ := s.CreateLink(ctx, p.ID, "https://shopee.sg/product/1/1", "shopee", "", "")
+	_, _ = s.CreateLink(ctx, p.ID, "https://shopee.sg/product/1/2", "shopee", "", "")
+	_, _ = s.CreateLink(ctx, p.ID, "https://www.lazada.sg/products/pdp-i1.html", "lazada", "", "")
+	_ = s.SetLinkResult(ctx, old.ID, LinkOK, "", time.Unix(1_800_000_000, 0))
+	if u, _ := s.LatestLinkURL(ctx, "shopee"); u != "https://shopee.sg/product/1/1" {
+		t.Fatalf("latest = %q", u)
+	}
+}

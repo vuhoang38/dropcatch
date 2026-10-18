@@ -186,6 +186,18 @@ func (s *Store) ListLinks(ctx context.Context, productID int64) ([]Link, error) 
 	return out, rows.Err()
 }
 
+// LatestLinkURL returns the URL of the site's most recently checked link, or
+// "" when you track nothing there.
+func (s *Store) LatestLinkURL(ctx context.Context, site string) (string, error) {
+	var u string
+	err := s.db.QueryRowContext(ctx,
+		`SELECT url FROM links WHERE site = ? ORDER BY COALESCE(last_checked_at, 0) DESC, id DESC LIMIT 1`, site).Scan(&u)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", nil
+	}
+	return u, err
+}
+
 // UpdateLinkInfo refreshes the title and seller read from the page.
 func (s *Store) UpdateLinkInfo(ctx context.Context, linkID int64, title, seller string) error {
 	return mustAffect(s.db.ExecContext(ctx, `UPDATE links SET title = ?, seller = ? WHERE id = ?`, title, seller, linkID))

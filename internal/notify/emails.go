@@ -61,7 +61,7 @@ func SessionEmail(site string, blocked bool) (subject, text string) {
 	}
 	if blocked {
 		return fmt.Sprintf("Dropcatch: %s wants a verification check", name),
-			fmt.Sprintf("%s showed a verification page, so Dropcatch paused checking %s.\n\nOpen Dropcatch, go to Settings, and click Log in next to %s. Solve the check in the window that opens, then close it.\n", name, name, name)
+			fmt.Sprintf("%s showed a verification page, so Dropcatch paused checking %s.\n\nOpen Dropcatch, go to Settings, and click Verify next to %s. Solve the check in the window that opens, then close it.\n", name, name, name)
 	}
 	return fmt.Sprintf("Dropcatch: %s login expired", name),
 		fmt.Sprintf("Your %s login expired, so Dropcatch paused checking %s and can't see your vouchers.\n\nOpen Dropcatch, go to Settings, and click Log in next to %s. Log in in the window that opens, then close it.\n", name, name, name)

@@ -47,6 +47,18 @@ describe('SettingsPage', () => {
     expect(screen.getByRole('button', { name: 'Log in to Lazada' })).toHaveTextContent(/^Log in$/)
   })
 
+  it('offers to verify where a site showed a verification check', async () => {
+    vi.mocked(api.get).mockImplementation((path: string) =>
+      Promise.resolve(path === '/sessions' ? [{ site: 'shopee', status: 'blocked' }] : settings),
+    )
+    renderWithProviders(<SettingsPage />)
+
+    const verify = await screen.findByRole('button', { name: 'Verify Shopee' })
+    expect(verify).toHaveTextContent(/^Verify$/)
+    await userEvent.click(verify)
+    expect(api.post).toHaveBeenCalledWith('/sessions/shopee/login')
+  })
+
   it('shows each login and opens a login window on request', async () => {
     renderWithProviders(<SettingsPage />)
 
