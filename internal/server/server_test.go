@@ -323,31 +323,61 @@ func TestLoginMarksSessionUnknownAndPassesDone(t *testing.T) {
 	t.Fatal("session not reset after the login window closed")
 }
 
-// Shopee shows its check on product pages, and you're still logged in, so
-// the window must stay until you close it.
-func TestVerifyOpensAProductPageAndWaitsForYou(t *testing.T) {
+// verifyLogin plays a verify window: it shows done the cookies, then you close it.
+type verifyLogin struct {
+	url     string
+	cookies map[string]string
+	closed  bool // what done answered: true would hide the window on its own
+	out     chan struct{}
+}
+
+func (v *verifyLogin) OpenVisible(ctx context.Context, url string, done func(map[string]string) bool, timeout time.Duration) error {
+	defer close(v.out)
+	v.url = url
+	v.closed = done(v.cookies)
+	return nil
+}
+
+func verifyAndWait(t *testing.T, cookies map[string]string) (*verifyLogin, store.SessionStatus) {
+	t.Helper()
 	_, s, _ := setup(t)
 	ctx := context.Background()
 	p, _ := s.CreateProduct(ctx, "AirPods Pro 3")
 	_, _ = s.CreateLink(ctx, p.ID, "https://shopee.sg/product/1/2", "shopee", "", "")
-	login := &fakeLogin{out: make(chan struct{})}
+	login := &verifyLogin{cookies: cookies, out: make(chan struct{})}
 	h := New(Deps{Store: s, Login: login, Now: func() time.Time { return now }}, fstest.MapFS{})
 	_ = s.SetSession(ctx, "shopee", store.SessionBlocked)
 	if code, _ := do(t, h, "POST", "/api/sessions/shopee/login", ""); code != 202 {
 		t.Fatalf("verify = %d", code)
 	}
 	<-login.out
-	if login.url != "https://shopee.sg/product/1/2" || login.done != nil {
-		t.Fatalf("url = %q, done set = %v", login.url, login.done != nil)
-	}
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
-		if st, _ := s.GetSession(ctx, "shopee"); st == store.SessionUnknown {
-			return
+		if st, _ := s.GetSession(ctx, "shopee"); st != store.SessionBlocked {
+			return login, st
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	t.Fatal("session not reset after the verify window closed")
+	t.Fatal("session still blocked after the verify window closed")
+	return nil, ""
+}
+
+// Shopee shows its check on product pages, and you're still logged in, so
+// the window stays until you close it, then reads your login from the cookie.
+func TestVerifyOpensAProductPageAndWaitsForYou(t *testing.T) {
+	login, st := verifyAndWait(t, map[string]string{"SPC_U": "12345678901"})
+	if login.url != "https://shopee.sg/product/1/2" || login.closed {
+		t.Fatalf("url = %q, hid itself = %v", login.url, login.closed)
+	}
+	if st != store.SessionOK {
+		t.Fatalf("session = %q, want ok", st)
+	}
+}
+
+func TestVerifyWhileLoggedOutLeavesSessionUnknown(t *testing.T) {
+	if _, st := verifyAndWait(t, map[string]string{}); st != store.SessionUnknown {
+		t.Fatalf("session = %q, want unknown", st)
+	}
 }
 
 func TestVerifyWithoutLinksOpensTheHomePage(t *testing.T) {
@@ -357,8 +387,8 @@ func TestVerifyWithoutLinksOpensTheHomePage(t *testing.T) {
 	_ = s.SetSession(context.Background(), "shopee", store.SessionBlocked)
 	do(t, h, "POST", "/api/sessions/shopee/login", "")
 	<-login.out
-	if login.url != "https://shopee.sg/" || login.done != nil {
-		t.Fatalf("url = %q, done set = %v", login.url, login.done != nil)
+	if login.url != "https://shopee.sg/" || login.done(map[string]string{"SPC_U": "12345678901"}) {
+		t.Fatalf("url = %q, or the window hid itself", login.url)
 	}
 }
 

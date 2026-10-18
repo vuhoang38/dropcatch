@@ -169,16 +169,13 @@ func (s *server) login(w http.ResponseWriter, r *http.Request) {
 	go func() {
 		defer s.loginOpen.Store(false)
 		var loggedIn atomic.Bool
-		var done func(cookies map[string]string) bool
-		if !verify {
-			isDone := loginDone(site)
-			done = func(cookies map[string]string) bool {
-				if isDone(cookies) {
-					loggedIn.Store(true)
-					return true
-				}
-				return false
-			}
+		isDone := loginDone(site)
+		done := func(cookies map[string]string) bool {
+			in := isDone(cookies)
+			loggedIn.Store(in)
+			// A verify window stays until you close it. It only notes
+			// whether you're still logged in.
+			return in && !verify
 		}
 		// Hides again once you're logged in or close the window, up to 30 minutes,
 		// which leaves time for a slow verification code.
