@@ -26,9 +26,9 @@ To run it by hand instead, use `make build` and then `./dropcatch`.
 2. Make a free account at [resend.com](https://resend.com) and create an API key. Paste the key, and put in the email address you signed up to Resend with. Resend's free sender only delivers to that address.
 3. Click **Save**, then **Send test email**, and check your inbox.
 4. Under **Logins**, click **Log in** next to Shopee. A Chrome window opens. Log in there and it hides itself once you are in. Do the same for Lazada.
+5. Go to **Products**, click **Add product**, paste your links, click **Read** on each, and tick the variants you want.
 
 If a site later shows "Needs verification", click **Verify** next to it. A Chrome window opens on one of your products. Solve the check, then close the window.
-5. Go to **Products**, click **Add product**, paste your links, click **Read** on each, and tick the variants you want.
 
 ## How alerts work
 
