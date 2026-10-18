@@ -245,3 +245,22 @@ func TestProductOverridesRoundTrip(t *testing.T) {
 		t.Fatalf("product = %+v", got)
 	}
 }
+
+func TestSetLastAlertedOnlyTouchesThatField(t *testing.T) {
+	s, ctx := newStore(t), context.Background()
+	p, _, _ := seed(t, s)
+	p.Paused = true
+	_ = s.UpdateProduct(ctx, p)
+	v := int64(22900)
+	if err := s.SetLastAlerted(ctx, p.ID, &v); err != nil {
+		t.Fatal(err)
+	}
+	got, _ := s.GetProduct(ctx, p.ID)
+	if !got.Paused || got.LastAlertedCents == nil || *got.LastAlertedCents != 22900 {
+		t.Fatalf("product = %+v", got)
+	}
+	_ = s.SetLastAlerted(ctx, p.ID, nil)
+	if got, _ := s.GetProduct(ctx, p.ID); got.LastAlertedCents != nil {
+		t.Fatalf("product = %+v", got)
+	}
+}

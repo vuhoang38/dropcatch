@@ -253,3 +253,8 @@ func (s *Store) ListVariants(ctx context.Context, linkID int64) ([]Variant, erro
 func (s *Store) SetVariantTracked(ctx context.Context, id int64, tracked bool) error {
 	return mustAffect(s.db.ExecContext(ctx, `UPDATE variants SET tracked = ?, is_new = 0 WHERE id = ?`, tracked, id))
 }
+
+// SetLastAlerted stores the no spam state without touching your settings.
+func (s *Store) SetLastAlerted(ctx context.Context, productID int64, cents *int64) error {
+	return mustAffect(s.db.ExecContext(ctx, `UPDATE products SET last_alerted_cents = ? WHERE id = ?`, cents, productID))
+}
