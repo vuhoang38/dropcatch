@@ -1,0 +1,7 @@
+.superpowers/
+web/node_modules/
+web/dist/*
+!web/dist/.gitkeep
+web/.screenshots/
+/dropcatch
+*.db
