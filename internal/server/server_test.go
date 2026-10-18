@@ -173,6 +173,19 @@ func TestHistory(t *testing.T) {
 	}
 }
 
+func TestHistoryLastDay(t *testing.T) {
+	h, s, _ := setup(t)
+	createAirpods(t, h)
+	ctx := context.Background()
+	_ = s.AddReading(ctx, store.Reading{VariantID: 1, At: now.Add(-30 * time.Hour), PriceCents: 30000, BestCents: 30000, InStock: true})
+	_ = s.AddReading(ctx, store.Reading{VariantID: 1, At: now.Add(-2 * time.Hour), PriceCents: 27900, BestCents: 27900, InStock: true})
+	_, body := do(t, h, "GET", "/api/products/1/history?range=1d", "")
+	hist := decode[History](t, body)
+	if len(hist.Series) != 1 || len(hist.Series[0].Points) != 1 || hist.Series[0].Points[0].Cents != 27900 {
+		t.Fatalf("history = %+v", hist)
+	}
+}
+
 func TestVariantTracking(t *testing.T) {
 	h, s, _ := setup(t)
 	createAirpods(t, h)

@@ -4,12 +4,12 @@ import { useState } from 'react'
 import { CartesianGrid, Line, LineChart, ReferenceLine, XAxis, YAxis } from 'recharts'
 import {
   ChartContainer,
-  ChartLegend,
-  ChartLegendContent,
   ChartTooltip,
   ChartTooltipContent,
   type ChartConfig,
 } from '@/components/ui/chart'
+import { Checkbox } from '@/components/ui/checkbox'
+import { Label } from '@/components/ui/label'
 import { Skeleton } from '@/components/ui/skeleton'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { historyQueryOptions, type History, type HistoryRange } from '@/lib/api/products'
@@ -19,18 +19,21 @@ import { formatCents } from '@/lib/format'
 const COLORS = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-4)', 'var(--chart-3)', 'var(--chart-5)']
 
 const RANGES: { value: HistoryRange; label: string }[] = [
-  { value: '7d', label: '7 days' },
-  { value: '30d', label: '30 days' },
-  { value: '90d', label: '90 days' },
+  { value: '1d', label: '24h' },
+  { value: '7d', label: '7d' },
+  { value: '30d', label: '30d' },
+  { value: '90d', label: '90d' },
   { value: 'all', label: 'All' },
 ]
 
 type Row = { t: number } & Record<string, number>
 
+type Series = History['series'][number]
+
 /** One row per check time, one column per variant, so recharts can draw a line each. */
-function toRows(history: History): Row[] {
+function toRows(series: Series[]): Row[] {
   const byTime = new Map<number, Row>()
-  for (const s of history.series) {
+  for (const s of series) {
     for (const p of s.points) {
       const t = new Date(p.t).getTime()
       const row = byTime.get(t) ?? { t }
@@ -41,15 +44,36 @@ function toRows(history: History): Row[] {
   return [...byTime.values()].sort((a, b) => a.t - b.t)
 }
 
+const DAY = 24 * 60 * 60 * 1000
+
+/** Times of day when the chart covers a day or less, dates otherwise. */
+function tickFormat(rows: Row[]) {
+  const span = rows.length > 0 ? rows[rows.length - 1].t - rows[0].t : 0
+  return span <= DAY ? 'HH:mm' : 'd MMM'
+}
+
 export function PriceChart({ productId }: { productId: number }) {
   const [range, setRange] = useState<HistoryRange>('30d')
+  // By variant id, so a line stays hidden when you switch ranges.
+  const [hidden, setHidden] = useState<ReadonlySet<number>>(new Set())
   const { data, isPending } = useQuery(historyQueryOptions(productId, range))
 
+  const series = data?.series ?? []
   const config: ChartConfig = {}
-  data?.series.forEach((s, i) => {
+  series.forEach((s, i) => {
     config[`v${s.variantId}`] = { label: s.label, color: COLORS[i % COLORS.length] }
   })
-  const rows = data ? toRows(data) : []
+  const shown = series.filter((s) => !hidden.has(s.variantId))
+  const rows = toRows(shown)
+
+  function toggle(id: number, show: boolean) {
+    setHidden((prev) => {
+      const next = new Set(prev)
+      if (show) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
 
   return (
     <div className="grid min-w-0 gap-3 overflow-hidden rounded-md border p-4">
@@ -72,8 +96,37 @@ export function PriceChart({ productId }: { productId: number }) {
         </ToggleGroup>
       </div>
 
+      {series.length > 0 ? (
+        <div className="flex flex-wrap gap-3">
+          {series.map((s) => {
+            const id = `series-${s.variantId}`
+            return (
+              <div key={s.variantId} className="flex items-center gap-2">
+                <Checkbox
+                  id={id}
+                  checked={!hidden.has(s.variantId)}
+                  onCheckedChange={(v) => toggle(s.variantId, v === true)}
+                />
+                <span
+                  aria-hidden
+                  className="size-2 shrink-0 rounded-sm"
+                  style={{ backgroundColor: config[`v${s.variantId}`]?.color }}
+                />
+                <Label htmlFor={id} className="text-caption">
+                  {s.label}
+                </Label>
+              </div>
+            )
+          })}
+        </div>
+      ) : null}
+
       {isPending ? (
         <Skeleton className="h-72 w-full" />
+      ) : series.length > 0 && shown.length === 0 ? (
+        <div className="text-body text-muted-foreground grid h-72 place-items-center">
+          Tick a line above to see its prices.
+        </div>
       ) : rows.length === 0 ? (
         <div className="text-body text-muted-foreground grid h-72 place-items-center">
           No prices recorded in this range yet.
@@ -90,7 +143,7 @@ export function PriceChart({ productId }: { productId: number }) {
               tickLine={false}
               axisLine={false}
               tickMargin={8}
-              tickFormatter={(t: number) => format(t, 'd MMM')}
+              tickFormatter={(t: number) => format(t, tickFormat(rows))}
             />
             <YAxis
               tickLine={false}
@@ -116,7 +169,6 @@ export function PriceChart({ productId }: { productId: number }) {
                 />
               }
             />
-            <ChartLegend content={<ChartLegendContent />} />
             {data?.typicalCents ? (
               <ReferenceLine
                 y={data.typicalCents}
@@ -130,7 +182,7 @@ export function PriceChart({ productId }: { productId: number }) {
                 }}
               />
             ) : null}
-            {data?.series.map((s) => (
+            {shown.map((s) => (
               <Line
                 key={s.variantId}
                 dataKey={`v${s.variantId}`}

@@ -60,7 +60,7 @@ export type ProductDetail = ProductSummary & {
   links: LinkDetail[]
 }
 
-export type HistoryRange = '7d' | '30d' | '90d' | 'all'
+export type HistoryRange = '1d' | '7d' | '30d' | '90d' | 'all'
 
 export type History = {
   series: { variantId: number; label: string; points: { t: string; cents: number }[] }[]

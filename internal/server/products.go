@@ -520,6 +520,8 @@ func (s *server) history(w http.ResponseWriter, r *http.Request) {
 	now := s.Now()
 	since := time.Time{}
 	switch r.URL.Query().Get("range") {
+	case "1d":
+		since = now.Add(-24 * time.Hour)
 	case "7d":
 		since = now.AddDate(0, 0, -7)
 	case "90d":
