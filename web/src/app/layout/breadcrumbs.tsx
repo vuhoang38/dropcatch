@@ -10,13 +10,17 @@ import {
 } from '@/components/ui/breadcrumb'
 
 const LABELS: Record<string, string> = {
-  products: 'Products',
   settings: 'Settings',
+}
+
+function label(segment: string) {
+  return LABELS[segment] ?? (/^\d+$/.test(segment) ? 'Product' : segment)
 }
 
 export function Breadcrumbs() {
   const { pathname } = useLocation()
-  const segments = pathname.split('/').filter(Boolean)
+  // Products is the home page, so /products/1 reads "Products > Product".
+  const segments = pathname.split('/').filter(Boolean).filter((s) => s !== 'products')
 
   return (
     <Breadcrumb>
@@ -36,11 +40,11 @@ export function Breadcrumbs() {
             <BreadcrumbSeparator />
             <BreadcrumbItem>
               {index === segments.length - 1 ? (
-                <BreadcrumbPage>{LABELS[segment] ?? segment}</BreadcrumbPage>
+                <BreadcrumbPage>{label(segment)}</BreadcrumbPage>
               ) : (
                 <BreadcrumbLink asChild>
                   <Link to={`/${segments.slice(0, index + 1).join('/')}`}>
-                    {LABELS[segment] ?? segment}
+                    {label(segment)}
                   </Link>
                 </BreadcrumbLink>
               )}
