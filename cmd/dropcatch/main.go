@@ -10,6 +10,7 @@ import (
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"io/fs"
 	"log"
 	"math/rand/v2"
@@ -162,13 +163,51 @@ var plist = template.Must(template.New("plist").Parse(`<?xml version="1.0" encod
 </plist>
 `))
 
+// installBinary copies the program to <data>/bin/dropcatch and returns that
+// path. macOS guards ~/Documents behind a privacy prompt, and a background
+// service started from there waits on that prompt again after every
+// rebuild. Application Support has no such prompt.
+func installBinary(src, data string) (string, error) {
+	dir := filepath.Join(data, "bin")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return "", err
+	}
+	in, err := os.Open(src)
+	if err != nil {
+		return "", err
+	}
+	defer in.Close()
+	tmp, err := os.CreateTemp(dir, "dropcatch-*")
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(tmp.Name()) // no-op after the rename
+	if _, err := io.Copy(tmp, in); err != nil {
+		tmp.Close()
+		return "", err
+	}
+	if err := tmp.Close(); err != nil {
+		return "", err
+	}
+	if err := os.Chmod(tmp.Name(), 0o755); err != nil {
+		return "", err
+	}
+	// Rename over the old copy so a running service keeps its open file.
+	dst := filepath.Join(dir, "dropcatch")
+	return dst, os.Rename(tmp.Name(), dst)
+}
+
 func installAgent(addr, data string) error {
-	bin, err := os.Executable()
+	self, err := os.Executable()
 	if err != nil {
 		return err
 	}
-	if bin, err = filepath.EvalSymlinks(bin); err != nil {
+	if self, err = filepath.EvalSymlinks(self); err != nil {
 		return err
+	}
+	bin, err := installBinary(self, data)
+	if err != nil {
+		return fmt.Errorf("copy program: %w", err)
 	}
 	home, err := os.UserHomeDir()
 	if err != nil {
@@ -197,8 +236,21 @@ func installAgent(addr, data string) error {
 	}
 
 	domain := "gui/" + strconv.Itoa(os.Getuid())
-	_ = exec.Command("launchctl", "bootout", domain+"/"+agentLabel).Run() // fine if it wasn't loaded
-	if out, err := exec.Command("launchctl", "bootstrap", domain, path).CombinedOutput(); err != nil {
+	service := domain + "/" + agentLabel
+	_ = exec.Command("launchctl", "bootout", service).Run() // fine if it wasn't loaded
+	// bootout returns before the old Dropcatch has exited (it closes Chrome
+	// first), and bootstrapping too early fails with an I/O error.
+	for i := 0; i < 30 && exec.Command("launchctl", "print", service).Run() == nil; i++ {
+		time.Sleep(500 * time.Millisecond)
+	}
+	var out []byte
+	for attempt := 0; attempt < 3; attempt++ {
+		if out, err = exec.Command("launchctl", "bootstrap", domain, path).CombinedOutput(); err == nil {
+			break
+		}
+		time.Sleep(2 * time.Second)
+	}
+	if err != nil {
 		return fmt.Errorf("launchctl bootstrap: %v: %s", err, out)
 	}
 	fmt.Printf("Dropcatch starts at login now. Open http://%s\nLaunch agent: %s\n", addr, path)

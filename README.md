@@ -14,7 +14,9 @@ You need Go, Bun (at `~/.bun/bin/bun`) and Google Chrome.
 make install
 ```
 
-That builds the dashboard and the `dropcatch` program, then registers it to start whenever you log in to your Mac. Open http://127.0.0.1:8080.
+That builds the dashboard and the `dropcatch` program, copies the program to `~/Library/Application Support/Dropcatch/bin/`, and registers it to start whenever you log in to your Mac. Open http://127.0.0.1:8080. Run `make install` again after you pull changes.
+
+The copy matters. macOS guards your Documents folder, and a background program started from there waits on a permission prompt after every rebuild.
 
 To run it by hand instead, use `make build` and then `./dropcatch`.
 
