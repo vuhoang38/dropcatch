@@ -4,6 +4,8 @@ Dropcatch tracks what products really cost on Shopee, Lazada, Amazon SG and Cour
 
 It runs on your Mac and checks prices every few hours while your laptop is awake.
 
+It reads pages with its own copy of Chrome, kept offscreen. That Chrome starts once when Dropcatch starts and stays open in the background, so checks never pull you out of what you're typing. You'll see it in the Dock. Leave it running.
+
 ## Install
 
 You need Go, Bun (at `~/.bun/bin/bun`) and Google Chrome.
@@ -60,3 +62,5 @@ cd web && bun run dev   # dashboard with hot reload on :5173, proxying /api to :
 ```
 
 To build a site reader, `go run ./cmd/capture` saves what a product page loads, so you can write tests against it.
+
+`go test -tags manual ./internal/browser/` checks that page loads never bring Chrome to the front. It needs Chrome and a desktop session.

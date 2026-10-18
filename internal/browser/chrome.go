@@ -1,4 +1,10 @@
 // Package browser drives your installed Chrome through a dedicated profile.
+//
+// On macOS, launching Chrome or opening a window or tab brings Chrome to the
+// front, which takes your keyboard away mid sentence. Loading a new page in a
+// tab that already exists doesn't. So Chrome starts once, offscreen, and every
+// page load reuses its one tab. Checked by hand on 2026-10-18, see
+// focus_manual_test.go.
 package browser
 
 import (
@@ -10,7 +16,9 @@ import (
 	"sync"
 	"time"
 
+	cdpbrowser "github.com/chromedp/cdproto/browser"
 	"github.com/chromedp/cdproto/network"
+	"github.com/chromedp/cdproto/page"
 	"github.com/chromedp/chromedp"
 
 	"dropcatch/internal/reader"
@@ -25,11 +33,18 @@ type Config struct {
 	Timeout    time.Duration // give up on one page load after this; default 90s
 }
 
-// Chrome runs one Chrome process at a time, since a profile can't be opened
-// twice. Every call launches Chrome and closes it when done.
+// Chrome keeps one Chrome process and one tab alive, and runs one page load
+// or login window at a time, since a profile can't be opened twice.
 type Chrome struct {
 	cfg Config
-	mu  sync.Mutex
+	mu  sync.Mutex // one Load or OpenVisible at a time
+
+	tab  context.Context // the one tab; nil until started
+	stop func()          // shuts Chrome down
+
+	capMu   sync.Mutex
+	capture []string
+	hits    map[network.RequestID]string
 }
 
 func New(cfg Config) *Chrome {
@@ -45,7 +60,42 @@ func New(cfg Config) *Chrome {
 	return &Chrome{cfg: cfg}
 }
 
-func (c *Chrome) launch(ctx context.Context, offscreen bool) (context.Context, context.CancelFunc) {
+// Start launches Chrome now, so the one moment it takes focus is when
+// Dropcatch starts rather than in the middle of your work.
+func (c *Chrome) Start() error {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.ensure()
+}
+
+// Close shuts Chrome down.
+func (c *Chrome) Close() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.shutdown()
+}
+
+func (c *Chrome) shutdown() {
+	if c.stop != nil {
+		c.stop()
+	}
+	c.tab, c.stop = nil, nil
+}
+
+// ensure makes sure Chrome is running and its tab answers, relaunching it if
+// it crashed or you closed the window.
+func (c *Chrome) ensure() error {
+	if c.tab != nil && c.tab.Err() == nil {
+		ping, cancel := context.WithTimeout(c.tab, 5*time.Second)
+		var u string
+		err := chromedp.Run(ping, chromedp.Location(&u))
+		cancel()
+		if err == nil {
+			return nil
+		}
+	}
+	c.shutdown()
+
 	opts := []chromedp.ExecAllocatorOption{
 		chromedp.ExecPath(c.cfg.ChromePath),
 		chromedp.UserDataDir(c.cfg.ProfileDir),
@@ -53,71 +103,92 @@ func (c *Chrome) launch(ctx context.Context, offscreen bool) (context.Context, c
 		chromedp.NoDefaultBrowserCheck,
 		chromedp.Flag("disable-blink-features", "AutomationControlled"),
 		chromedp.WindowSize(1280, 900),
+		chromedp.Flag("window-position", "-2400,-2400"),
 	}
-	if offscreen {
-		opts = append(opts, chromedp.Flag("window-position", "-2400,-2400"))
-	}
-	actx, cancelAlloc := chromedp.NewExecAllocator(ctx, opts...)
-	bctx, cancelBrowser := chromedp.NewContext(actx, chromedp.WithErrorf(quietErrorf))
-	return bctx, func() {
+	actx, cancelAlloc := chromedp.NewExecAllocator(context.Background(), opts...)
+	// The first context on a fresh browser attaches to its startup tab, so
+	// no second window opens.
+	tab, cancelTab := chromedp.NewContext(actx, chromedp.WithErrorf(quietErrorf))
+	stop := func() {
 		// Cancel closes Chrome cleanly so it writes cookies back to the profile.
-		_ = chromedp.Cancel(bctx)
-		cancelBrowser()
+		_ = chromedp.Cancel(tab)
+		cancelTab()
 		cancelAlloc()
+	}
+	chromedp.ListenTarget(tab, c.onEvent)
+	if err := chromedp.Run(tab, network.Enable()); err != nil {
+		stop()
+		return fmt.Errorf("start chrome: %w", err)
+	}
+	c.tab, c.stop = tab, stop
+	return nil
+}
+
+func (c *Chrome) onEvent(ev any) {
+	e, ok := ev.(*network.EventResponseReceived)
+	if !ok {
+		return
+	}
+	c.capMu.Lock()
+	defer c.capMu.Unlock()
+	for _, sub := range c.capture {
+		if strings.Contains(e.Response.URL, sub) {
+			c.hits[e.RequestID] = e.Response.URL
+			return
+		}
 	}
 }
 
-// Load opens url offscreen and returns what the page showed.
+func (c *Chrome) setCapture(subs []string) {
+	c.capMu.Lock()
+	c.capture, c.hits = subs, map[network.RequestID]string{}
+	c.capMu.Unlock()
+}
+
+// Load opens url in the background tab and returns what the page showed.
 func (c *Chrome) Load(ctx context.Context, url string, capture []string) (reader.Page, error) {
 	c.mu.Lock()
 	defer c.mu.Unlock()
+	if err := c.ensure(); err != nil {
+		return reader.Page{}, err
+	}
+
+	c.setCapture(capture)
+	defer c.setCapture(nil)
 
 	// A page whose load event never fires would otherwise hold the browser,
 	// and every check behind it, forever.
-	ctx, cancel := context.WithTimeout(ctx, c.cfg.Timeout)
+	run, cancel := context.WithTimeout(c.tab, c.cfg.Timeout)
 	defer cancel()
-	bctx, done := c.launch(ctx, true)
-	defer done()
-
-	var (
-		hitsMu sync.Mutex
-		hits   = map[network.RequestID]string{}
-	)
-	chromedp.ListenTarget(bctx, func(ev any) {
-		e, ok := ev.(*network.EventResponseReceived)
-		if !ok {
-			return
-		}
-		for _, sub := range capture {
-			if strings.Contains(e.Response.URL, sub) {
-				hitsMu.Lock()
-				hits[e.RequestID] = e.Response.URL
-				hitsMu.Unlock()
-				return
-			}
-		}
-	})
+	defer context.AfterFunc(ctx, cancel)()
 
 	page := reader.Page{Responses: map[string][]byte{}}
-	err := chromedp.Run(bctx,
-		network.Enable(),
+	err := chromedp.Run(run,
 		chromedp.Navigate(url),
 		chromedp.Sleep(c.cfg.Settle),
 		chromedp.Location(&page.FinalURL),
 		chromedp.OuterHTML("html", &page.HTML, chromedp.ByQuery),
 	)
 	if err != nil {
-		if ctx.Err() != nil {
-			return page, fmt.Errorf("page took longer than %s to load", c.cfg.Timeout)
+		switch {
+		case errors.Is(run.Err(), context.DeadlineExceeded):
+			err = fmt.Errorf("page took longer than %s to load", c.cfg.Timeout)
+		case ctx.Err() != nil:
+			err = ctx.Err()
+		default:
+			c.shutdown() // the browser is in a bad state; relaunch next time
+			return page, err
 		}
+		c.blank()
 		return page, err
 	}
 
-	hitsMu.Lock()
-	defer hitsMu.Unlock()
+	c.capMu.Lock()
+	hits := c.hits
+	c.capMu.Unlock()
 	for id, u := range hits {
 		var body []byte
-		err := chromedp.Run(bctx, chromedp.ActionFunc(func(ctx context.Context) error {
+		err := chromedp.Run(run, chromedp.ActionFunc(func(ctx context.Context) error {
 			var err error
 			body, err = network.GetResponseBody(id).Do(ctx)
 			return err
@@ -126,42 +197,79 @@ func (c *Chrome) Load(ctx context.Context, url string, capture []string) (reader
 			page.Responses[u] = body
 		}
 	}
+	c.blank()
 	return page, nil
 }
 
-// OpenVisible shows a normal Chrome window at url so you can log in or solve
-// a captcha. It returns when done reports true for the current URL, when you
-// close the window, or after timeout.
+// blank leaves the tab on an empty page, so a shop's scripts don't keep
+// running between checks.
+func (c *Chrome) blank() {
+	ctx, cancel := context.WithTimeout(c.tab, 10*time.Second)
+	defer cancel()
+	_ = chromedp.Run(ctx, chromedp.Navigate("about:blank"))
+}
+
+func (c *Chrome) moveWindow(ctx context.Context, left, top int64, front bool) error {
+	return chromedp.Run(ctx, chromedp.ActionFunc(func(ctx context.Context) error {
+		id, _, err := cdpbrowser.GetWindowForTarget().Do(ctx)
+		if err != nil {
+			return err
+		}
+		err = cdpbrowser.SetWindowBounds(id, &cdpbrowser.Bounds{
+			Left: left, Top: top, Width: 1280, Height: 900, WindowState: cdpbrowser.WindowStateNormal,
+		}).Do(ctx)
+		if err != nil || !front {
+			return err
+		}
+		return page.BringToFront().Do(ctx)
+	}))
+}
+
+// OpenVisible moves the Chrome window on screen at url so you can log in or
+// solve a captcha. It returns when done reports true for the current URL, when
+// you close the window, or after timeout. Then the window goes back offscreen.
 func (c *Chrome) OpenVisible(ctx context.Context, url string, done func(currentURL string) bool, timeout time.Duration) error {
 	c.mu.Lock()
 	defer c.mu.Unlock()
-
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
-	bctx, closeChrome := c.launch(ctx, false)
-	defer closeChrome()
-
-	if err := chromedp.Run(bctx, chromedp.Navigate(url)); err != nil {
+	if err := c.ensure(); err != nil {
 		return err
 	}
-	for {
-		select {
-		case <-bctx.Done():
-			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
-				return nil
-			}
-			return nil // window closed
-		case <-time.After(2 * time.Second):
-		}
+
+	run, cancel := context.WithTimeout(c.tab, timeout)
+	defer cancel()
+	defer context.AfterFunc(ctx, cancel)()
+
+	if err := c.moveWindow(run, 120, 80, true); err != nil {
+		return err
+	}
+	if err := chromedp.Run(run, chromedp.Navigate(url)); err != nil {
+		return err
+	}
+	for run.Err() == nil {
+		time.Sleep(2 * time.Second)
 		var cur string
-		if err := chromedp.Run(bctx, chromedp.Location(&cur)); err != nil {
-			return nil // window closed
+		if err := chromedp.Run(run, chromedp.Location(&cur)); err != nil {
+			break // you closed the window, or time ran out
 		}
 		if done != nil && done(cur) {
 			time.Sleep(3 * time.Second) // let cookies settle
+			break
+		}
+	}
+
+	if c.tab.Err() == nil {
+		hide, cancelHide := context.WithTimeout(c.tab, 10*time.Second)
+		err := c.moveWindow(hide, -2400, -2400, false)
+		cancelHide()
+		if err == nil {
+			c.blank()
 			return nil
 		}
 	}
+	// You closed the window. Relaunch now, while you're switching away
+	// anyway, rather than taking focus during a later check.
+	c.shutdown()
+	return c.ensure()
 }
 
 // quietErrorf drops chromedp's complaints about event types newer Chrome

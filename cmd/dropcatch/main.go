@@ -95,6 +95,14 @@ func serve(addr, data, chromePath, profile string) error {
 	reader.Register(courts.New())
 
 	chrome := browser.New(browser.Config{ChromePath: chromePath, ProfileDir: profile})
+	defer chrome.Close()
+	// Launch Chrome now. It takes focus once, at startup, instead of during
+	// a check while you're typing.
+	go func() {
+		if err := chrome.Start(); err != nil {
+			log.Printf("chrome: %v", err)
+		}
+	}()
 	// DROPCATCH_RESEND_URL points email at a local sink for end to end tests.
 	mailer := &notify.SettingsMailer{Store: st, BaseURL: os.Getenv("DROPCATCH_RESEND_URL")}
 	notices := &notify.Notices{

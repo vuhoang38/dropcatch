@@ -30,10 +30,12 @@ func main() {
 		log.Fatal("-profile is required")
 	}
 	c := browser.New(browser.Config{ProfileDir: *profile, Settle: *settle, Timeout: *timeout})
+	defer c.Close()
 	ctx := context.Background()
 
 	if *login != "" {
 		if err := c.OpenVisible(ctx, *login, nil, 10*time.Minute); err != nil {
+			c.Close()
 			log.Fatal(err)
 		}
 		fmt.Println("window closed")
@@ -48,6 +50,7 @@ func main() {
 	}
 	page, err := c.Load(ctx, flag.Arg(0), subs)
 	if err != nil {
+		c.Close()
 		log.Fatal(err)
 	}
 	must(os.MkdirAll(*out, 0o755))
