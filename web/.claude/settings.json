@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(bun run verify)",
+      "Bash(bun run typecheck)",
+      "Bash(bun run lint)",
+      "Bash(bun run lint:*)",
+      "Bash(bun run test)",
+      "Bash(bun run test:*)",
+      "Bash(bun run screenshot)",
+      "Bash(bun run screenshot:*)",
+      "Bash(bun run ui:add:*)",
+      "Bash(bun run build)",
+      "Bash(bun install)"
+    ]
+  }
+}

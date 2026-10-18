@@ -1,0 +1,65 @@
+@import 'tailwindcss';
+@import './tokens.css';
+
+@custom-variant dark (&:is(.dark *));
+
+@layer base {
+  * {
+    @apply border-border outline-ring/50;
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-background text-foreground text-body antialiased;
+    font-synthesis-weight: none;
+  }
+
+  /**
+   * Tailwind v3 Preflight gave buttons `cursor: pointer`. v4 matches the browser
+   * default instead, which is `cursor: default`, so every control in the app
+   * lost its pointer. Put it back here rather than in `src/components/ui/`, so
+   * one rule covers every generated component at once.
+   *
+   * This sits in `base`, so an explicit `cursor-*` utility still wins. That is
+   * deliberate: the sidebar rail sets `cursor-w-resize` and must keep it.
+   */
+  :is(
+    button,
+    [role='button'],
+    [role='tab'],
+    [role='switch'],
+    [role='checkbox'],
+    [role='radio']
+  ):not(:disabled, [aria-disabled='true'], [data-disabled]) {
+    cursor: pointer;
+  }
+}
+
+/**
+ * Menu items, select options and command items ship a hard-coded
+ * `cursor-default` from shadcn. That is a utility class, and no rule in `base`
+ * can outrank a utility however specific it is, because layer order beats
+ * specificity. Tailwind declares `theme, base, components, utilities`, so this
+ * layer is appended after all four and wins.
+ *
+ * Match on role, not on `data-slot`. Radix builds these from `div` elements and
+ * every menu primitive sets the same roles, so dropdown, context menu, menubar
+ * and cmdk are all covered, including ones added later by `ui:add`.
+ */
+@layer app-overrides {
+  :is(
+    [role='menuitem'],
+    [role='menuitemcheckbox'],
+    [role='menuitemradio'],
+    [role='option']
+  ):not([aria-disabled='true'], [data-disabled]) {
+    cursor: pointer;
+  }
+}
+
+@utility sunken {
+  background-color: var(--surface-sunken);
+}
