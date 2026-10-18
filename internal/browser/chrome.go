@@ -4,6 +4,8 @@ package browser
 import (
 	"context"
 	"errors"
+	"fmt"
+	"log"
 	"strings"
 	"sync"
 	"time"
@@ -52,7 +54,7 @@ func (c *Chrome) launch(ctx context.Context, offscreen bool) (context.Context, c
 		opts = append(opts, chromedp.Flag("window-position", "-2400,-2400"))
 	}
 	actx, cancelAlloc := chromedp.NewExecAllocator(ctx, opts...)
-	bctx, cancelBrowser := chromedp.NewContext(actx)
+	bctx, cancelBrowser := chromedp.NewContext(actx, chromedp.WithErrorf(quietErrorf))
 	return bctx, func() {
 		// Cancel closes Chrome cleanly so it writes cookies back to the profile.
 		_ = chromedp.Cancel(bctx)
@@ -149,4 +151,14 @@ func (c *Chrome) OpenVisible(ctx context.Context, url string, done func(currentU
 			return nil
 		}
 	}
+}
+
+// quietErrorf drops chromedp's complaints about event types newer Chrome
+// versions send that its protocol package doesn't know yet. They're harmless.
+func quietErrorf(format string, args ...any) {
+	msg := fmt.Sprintf(format, args...)
+	if strings.Contains(msg, "could not unmarshal event") {
+		return
+	}
+	log.Print(msg)
 }
