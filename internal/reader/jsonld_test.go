@@ -6,6 +6,7 @@ func TestProductFromJSONLD(t *testing.T) {
 	cases := map[string]string{
 		"object": `<html><script type="application/ld+json">{"@context":"https://schema.org","@type":"Product","name":"X","offers":{"@type":"Offer","price":"1299.00","availability":"https://schema.org/InStock"}}</script></html>`,
 		"array":  `<script type="application/ld+json">[{"@type":"BreadcrumbList"},{"@type":"Product","name":"X","offers":[{"price":1299,"availability":"http://schema.org/InStock"}]}]</script>`,
+		"nested": `<script type="application/ld+json">{"@type":"ItemPage","breadcrumb":{"@type":"BreadcrumbList"},"mainEntity":{"@type":"Product","name":"X","offers":{"price":"1299.00","availability":"http://schema.org/InStock"}}}</script>`,
 		"graph":  `<script type='application/ld+json'>{"@graph":[{"@type":"WebPage"},{"@type":["Product"],"name":"X","offers":{"price":"1,299.00","availability":"InStock"}}]}</script>`,
 	}
 	for name, html := range cases {

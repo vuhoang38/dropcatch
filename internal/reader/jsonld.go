@@ -48,8 +48,13 @@ func findProduct(doc any) map[string]any {
 		if isType(d["@type"], "Product") {
 			return d
 		}
-		if g, ok := d["@graph"]; ok {
-			return findProduct(g)
+		// Look inside wrappers like @graph and ItemPage.mainEntity.
+		for _, k := range []string{"@graph", "mainEntity", "itemOffered"} {
+			if inner, ok := d[k]; ok {
+				if p := findProduct(inner); p != nil {
+					return p
+				}
+			}
 		}
 	}
 	return nil
