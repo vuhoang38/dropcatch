@@ -20,6 +20,7 @@ package lazada
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"math/rand/v2"
 	"net/url"
@@ -32,6 +33,10 @@ import (
 )
 
 const apiPath = "mtop.global.detail.web.getdetailinfo"
+
+// errTokenExpired means the page's short lived API token ran out. Lazada's
+// script gets a new one and asks again, so it isn't a broken link.
+var errTokenExpired = fmt.Errorf("%w: Lazada's page token expired", reader.ErrUnreadable)
 
 type Reader struct {
 	// Sleep pauses between page loads. Nil means a random 5 to 20 seconds.
@@ -117,7 +122,18 @@ func (r *Reader) sleep() {
 	time.Sleep(time.Duration(5+rand.IntN(16)) * time.Second)
 }
 
+// readOnce loads target, and loads it once more when the token expired before
+// the page could ask again.
 func (r *Reader) readOnce(ctx context.Context, b reader.Browser, target string) (reader.Listing, error) {
+	l, err := r.load(ctx, b, target)
+	if errors.Is(err, errTokenExpired) {
+		r.sleep()
+		l, err = r.load(ctx, b, target)
+	}
+	return l, err
+}
+
+func (r *Reader) load(ctx context.Context, b reader.Browser, target string) (reader.Listing, error) {
 	page, err := b.Load(ctx, target, []string{apiPath})
 	if err != nil {
 		return reader.Listing{}, err
@@ -128,12 +144,25 @@ func (r *Reader) readOnce(ctx context.Context, b reader.Browser, target string) 
 	if strings.Contains(page.FinalURL, "member.lazada.sg/user/login") {
 		return reader.Listing{}, reader.ErrLoggedOut
 	}
+	// The page may hold a failed reply plus the retry that worked. Take the one
+	// that worked, and otherwise the error that says the most.
+	err = nil
 	for u, body := range page.Responses {
-		if strings.Contains(u, apiPath) {
-			return ParseDetail(body)
+		if !strings.Contains(u, apiPath) {
+			continue
+		}
+		l, e := ParseDetail(body)
+		if e == nil {
+			return l, nil
+		}
+		if err == nil || errors.Is(err, errTokenExpired) {
+			err = e
 		}
 	}
-	return reader.Listing{}, fmt.Errorf("%w: no product data on page", reader.ErrUnreadable)
+	if err == nil {
+		err = fmt.Errorf("%w: no product data on page", reader.ErrUnreadable)
+	}
+	return reader.Listing{}, err
 }
 
 type detail struct {
@@ -193,6 +222,8 @@ func ParseDetail(body []byte) (reader.Listing, error) {
 			return reader.Listing{}, reader.ErrBlocked
 		case strings.HasPrefix(ret, "FAIL_SYS_SESSION_EXPIRED"):
 			return reader.Listing{}, reader.ErrLoggedOut
+		case strings.HasPrefix(ret, "FAIL_SYS_TOKEN_"): // EXOIRED (sic), EXPIRED, EMPTY
+			return reader.Listing{}, errTokenExpired
 		}
 	}
 	if d.Data.Module == "" {

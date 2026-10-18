@@ -91,6 +91,7 @@ type fakeBrowser struct {
 	final string
 	body  []byte
 	urls  []string
+	loads []map[string][]byte // responses for each Load in turn, instead of body
 }
 
 func (f *fakeBrowser) Load(ctx context.Context, url string, capture []string) (reader.Page, error) {
@@ -102,7 +103,52 @@ func (f *fakeBrowser) Load(ctx context.Context, url string, capture []string) (r
 	if f.body != nil {
 		p.Responses["https://acs-m.lazada.sg/h5/mtop.global.detail.web.getdetailinfo/1.0/?x"] = f.body
 	}
+	if n := len(f.urls) - 1; n < len(f.loads) {
+		p.Responses = f.loads[n]
+	}
 	return p, nil
+}
+
+const tokenExpired = `{"ret":["FAIL_SYS_TOKEN_EXOIRED::令牌过期"],"data":{}}`
+
+// Lazada's page script gets a new token and asks again, so a page can carry
+// a failed reply next to the good one.
+func TestReadSkipsExpiredTokenReply(t *testing.T) {
+	good := load(t, "airpods_logged_in.json")
+	for range 20 { // map order is random; make sure the failed reply never wins
+		r := &Reader{Sleep: func(time.Duration) {}}
+		b := &fakeBrowser{loads: []map[string][]byte{{
+			"https://acs-m.lazada.sg/h5/mtop.global.detail.web.getdetailinfo/1.0/?t=1": []byte(tokenExpired),
+			"https://acs-m.lazada.sg/h5/mtop.global.detail.web.getdetailinfo/1.0/?t=2": good,
+		}}}
+		l, err := r.Read(context.Background(), b, "https://www.lazada.sg/products/pdp-i3525361975.html", nil)
+		if err != nil || l.Variants[0].PriceCents != 32200 || len(b.urls) != 1 {
+			t.Fatalf("err = %v urls = %v listing = %+v", err, b.urls, l)
+		}
+	}
+}
+
+// When the retry doesn't land before the page settles, the token cookie is
+// fresh by then, so one more load works.
+func TestReadReloadsAfterExpiredToken(t *testing.T) {
+	r := &Reader{Sleep: func(time.Duration) {}}
+	b := &fakeBrowser{loads: []map[string][]byte{
+		{"https://acs-m.lazada.sg/h5/mtop.global.detail.web.getdetailinfo/1.0/?t=1": []byte(tokenExpired)},
+		{"https://acs-m.lazada.sg/h5/mtop.global.detail.web.getdetailinfo/1.0/?t=2": load(t, "airpods_logged_in.json")},
+	}}
+	l, err := r.Read(context.Background(), b, "https://www.lazada.sg/products/pdp-i3525361975.html", nil)
+	if err != nil || l.Variants[0].PriceCents != 32200 || len(b.urls) != 2 {
+		t.Fatalf("err = %v urls = %v listing = %+v", err, b.urls, l)
+	}
+}
+
+func TestReadGivesUpAfterTwoExpiredTokens(t *testing.T) {
+	r := &Reader{Sleep: func(time.Duration) {}}
+	expired := map[string][]byte{"https://acs-m.lazada.sg/h5/mtop.global.detail.web.getdetailinfo/1.0/?t=1": []byte(tokenExpired)}
+	b := &fakeBrowser{loads: []map[string][]byte{expired, expired, expired}}
+	if _, err := r.Read(context.Background(), b, "https://www.lazada.sg/products/pdp-i1.html", nil); !errors.Is(err, reader.ErrUnreadable) || len(b.urls) != 2 {
+		t.Fatalf("err = %v urls = %v", err, b.urls)
+	}
 }
 
 func TestReadBlocked(t *testing.T) {
