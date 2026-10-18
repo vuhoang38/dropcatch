@@ -86,7 +86,8 @@ func (s *Store) LatestReadings(ctx context.Context, productID int64) (map[int64]
 		 FROM readings r
 		 JOIN variants v ON v.id = r.variant_id
 		 JOIN links l ON l.id = v.link_id
-		 WHERE l.product_id = ? AND r.id = (SELECT MAX(id) FROM readings WHERE variant_id = r.variant_id)`,
+		 WHERE l.product_id = ? AND r.id = (
+		   SELECT id FROM readings WHERE variant_id = r.variant_id ORDER BY at DESC, id DESC LIMIT 1)`,
 		productID)
 	if err != nil {
 		return nil, err

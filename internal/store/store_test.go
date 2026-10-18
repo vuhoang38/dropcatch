@@ -264,3 +264,14 @@ func TestSetLastAlertedOnlyTouchesThatField(t *testing.T) {
 		t.Fatalf("product = %+v", got)
 	}
 }
+
+func TestLatestReadingsByTimeNotInsertOrder(t *testing.T) {
+	s, ctx := newStore(t), context.Background()
+	p, _, vs := seed(t, s, Variant{ExternalID: "m1", Tracked: true})
+	_ = s.AddReading(ctx, reading(vs[0], "2026-10-18T03:00:00Z", 28000, true))
+	_ = s.AddReading(ctx, reading(vs[0], "2026-10-10T03:00:00Z", 30000, true)) // backfilled later
+	latest, _ := s.LatestReadings(ctx, p.ID)
+	if got := latest[vs[0].ID].BestCents; got != 28000 {
+		t.Fatalf("latest = %d, want 28000", got)
+	}
+}
