@@ -1,13 +1,13 @@
-import { useQuery } from "@tanstack/react-query";
-import { useState } from "react";
-import { toast } from "sonner";
-import { PageHeader } from "@/components/shared/page-header";
-import { Alert, AlertDescription } from "@/components/ui/alert";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
-import { Skeleton } from "@/components/ui/skeleton";
+import { useQuery } from '@tanstack/react-query'
+import { useState } from 'react'
+import { toast } from 'sonner'
+import { PageHeader } from '@/components/shared/page-header'
+import { Alert, AlertDescription } from '@/components/ui/alert'
+import { Badge } from '@/components/ui/badge'
+import { Button } from '@/components/ui/button'
+import { Input } from '@/components/ui/input'
+import { Label } from '@/components/ui/label'
+import { Skeleton } from '@/components/ui/skeleton'
 import {
   sessionsQueryOptions,
   settingsQueryOptions,
@@ -16,18 +16,15 @@ import {
   useSendTestEmail,
   type SessionStatus,
   type Settings,
-} from "@/lib/api/settings";
-import { siteName } from "@/lib/format";
+} from '@/lib/api/settings'
+import { siteName } from '@/lib/format'
 
 export default function SettingsPage() {
-  const { data, isPending } = useQuery(settingsQueryOptions());
+  const { data, isPending } = useQuery(settingsQueryOptions())
 
   return (
     <>
-      <PageHeader
-        title="Settings"
-        description="Alert defaults, email, and the logins Dropcatch uses."
-      />
+      <PageHeader title="Settings" description="Alert defaults, email, and the logins Dropcatch uses." />
       {isPending || !data ? (
         <Skeleton className="h-96 w-full" />
       ) : (
@@ -35,52 +32,26 @@ export default function SettingsPage() {
       )}
       <Logins />
     </>
-  );
+  )
 }
 
-type NumberField =
-  "dropPct" | "windowDays" | "minHistoryDays" | "checkIntervalHours";
+type NumberField = 'dropPct' | 'windowDays' | 'minHistoryDays' | 'checkIntervalHours'
 
-const NUMBER_FIELDS: {
-  key: NumberField;
-  label: string;
-  unit: string;
-  hint: string;
-}[] = [
-  {
-    key: "dropPct",
-    label: "Alert when this % under typical",
-    unit: "%",
-    hint: "Default for every product.",
-  },
-  {
-    key: "windowDays",
-    label: "Typical price window",
-    unit: "days",
-    hint: "Typical price is the median of these days.",
-  },
-  {
-    key: "minHistoryDays",
-    label: "Days of history before alerting",
-    unit: "days",
-    hint: "No alerts before this.",
-  },
-  {
-    key: "checkIntervalHours",
-    label: "Check prices every",
-    unit: "hours",
-    hint: "Runs while your laptop is awake.",
-  },
-];
+const NUMBER_FIELDS: { key: NumberField; label: string; unit: string; hint: string }[] = [
+  { key: 'dropPct', label: 'Alert when this % under typical', unit: '%', hint: 'Default for every product.' },
+  { key: 'windowDays', label: 'Typical price window', unit: 'days', hint: 'Typical price is the median of these days.' },
+  { key: 'minHistoryDays', label: 'Days of history before alerting', unit: 'days', hint: 'No alerts before this.' },
+  { key: 'checkIntervalHours', label: 'Check prices every', unit: 'hours', hint: 'Runs while your laptop is awake.' },
+]
 
 function SettingsForm({ settings }: { settings: Settings }) {
-  const [form, setForm] = useState(settings);
-  const save = useSaveSettings();
-  const testEmail = useSendTestEmail();
+  const [form, setForm] = useState(settings)
+  const save = useSaveSettings()
+  const testEmail = useSendTestEmail()
 
   async function submit() {
-    await save.mutateAsync(form);
-    toast.success("Settings saved.");
+    await save.mutateAsync(form)
+    toast.success('Settings saved.')
   }
 
   return (
@@ -97,20 +68,11 @@ function SettingsForm({ settings }: { settings: Settings }) {
                   type="number"
                   min={0}
                   value={form[f.key]}
-                  onChange={(event) =>
-                    setForm((s) => ({
-                      ...s,
-                      [f.key]: Number(event.target.value),
-                    }))
-                  }
+                  onChange={(event) => setForm((s) => ({ ...s, [f.key]: Number(event.target.value) }))}
                 />
-                <span className="text-caption text-muted-foreground">
-                  {f.unit}
-                </span>
+                <span className="text-caption text-muted-foreground">{f.unit}</span>
               </div>
-              <span className="text-caption text-muted-foreground">
-                {f.hint}
-              </span>
+              <span className="text-caption text-muted-foreground">{f.hint}</span>
             </div>
           ))}
         </div>
@@ -120,8 +82,8 @@ function SettingsForm({ settings }: { settings: Settings }) {
         <div className="grid gap-1">
           <span className="text-h3">Email</span>
           <span className="text-caption text-muted-foreground">
-            Dropcatch sends through Resend. Make a free account at resend.com,
-            create an API key, and use the email address you signed up with.
+            Dropcatch sends through Resend. Make a free account at resend.com, create an API key,
+            and use the email address you signed up with.
           </span>
         </div>
         <div className="grid gap-4 sm:grid-cols-2">
@@ -133,9 +95,7 @@ function SettingsForm({ settings }: { settings: Settings }) {
               autoComplete="off"
               value={form.resendApiKey}
               placeholder="re_..."
-              onChange={(event) =>
-                setForm((s) => ({ ...s, resendApiKey: event.target.value }))
-              }
+              onChange={(event) => setForm((s) => ({ ...s, resendApiKey: event.target.value }))}
             />
           </div>
           <div className="grid gap-2">
@@ -145,9 +105,7 @@ function SettingsForm({ settings }: { settings: Settings }) {
               type="email"
               value={form.email}
               placeholder="you@example.com"
-              onChange={(event) =>
-                setForm((s) => ({ ...s, email: event.target.value }))
-              }
+              onChange={(event) => setForm((s) => ({ ...s, email: event.target.value }))}
             />
           </div>
         </div>
@@ -157,17 +115,14 @@ function SettingsForm({ settings }: { settings: Settings }) {
           disabled={testEmail.isPending}
           onClick={() =>
             testEmail.mutate(undefined, {
-              onSuccess: () =>
-                toast.success("Test email sent. Check your inbox."),
+              onSuccess: () => toast.success('Test email sent. Check your inbox.'),
               onError: (error) => toast.error(error.message),
             })
           }
         >
           Send test email
         </Button>
-        <span className="text-caption text-muted-foreground">
-          Save first if you just changed the key or email.
-        </span>
+        <span className="text-caption text-muted-foreground">Save first if you just changed the key or email.</span>
       </section>
 
       {save.isError ? (
@@ -184,41 +139,36 @@ function SettingsForm({ settings }: { settings: Settings }) {
         Save
       </Button>
     </div>
-  );
+  )
 }
 
-const STATUS: Record<
-  SessionStatus,
-  { text: string; variant: "default" | "secondary" | "destructive" | "outline" }
-> = {
-  ok: { text: "Logged in", variant: "secondary" },
-  expired: { text: "Login expired", variant: "destructive" },
-  blocked: { text: "Needs verification", variant: "destructive" },
-  unknown: { text: "Not checked yet", variant: "outline" },
-};
+const STATUS: Record<SessionStatus, { text: string; variant: 'default' | 'secondary' | 'destructive' | 'outline' }> = {
+  ok: { text: 'Logged in', variant: 'secondary' },
+  expired: { text: 'Login expired', variant: 'destructive' },
+  blocked: { text: 'Needs verification', variant: 'destructive' },
+  unknown: { text: 'Not checked yet', variant: 'outline' },
+}
 
 function Logins() {
-  const { data } = useQuery(sessionsQueryOptions());
-  const login = useOpenLogin();
+  const { data } = useQuery(sessionsQueryOptions())
+  const login = useOpenLogin()
 
   return (
     <section className="grid gap-4 rounded-md border p-4">
       <div className="grid gap-1">
         <span className="text-h3">Logins</span>
         <span className="text-caption text-muted-foreground">
-          Shopee and Lazada only show your vouchers when you're logged in.
-          Dropcatch uses its own Chrome profile, so log in there once.
+          Shopee and Lazada only show your vouchers when you're logged in. Dropcatch uses its own
+          Chrome profile, so log in there once.
         </span>
       </div>
       <ul className="grid gap-3">
         {(data ?? []).map((s) => {
-          const action = s.status === "ok" ? "Log in again" : "Log in";
+          const action = s.status === 'ok' ? 'Log in again' : 'Log in'
           return (
             <li key={s.site} className="flex flex-wrap items-center gap-3">
               <span className="text-label w-24">{siteName(s.site)}</span>
-              <Badge variant={STATUS[s.status].variant}>
-                {STATUS[s.status].text}
-              </Badge>
+              <Badge variant={STATUS[s.status].variant}>{STATUS[s.status].text}</Badge>
               <Button
                 size="sm"
                 variant="outline"
@@ -227,10 +177,7 @@ function Logins() {
                 disabled={login.isPending}
                 onClick={() =>
                   login.mutate(s.site, {
-                    onSuccess: () =>
-                      toast.success(
-                        "A Chrome window opened. Log in there. It hides itself once you are in.",
-                      ),
+                    onSuccess: () => toast.success('A Chrome window opened. Log in there. It hides itself once you are in.'),
                     onError: (error) => toast.error(error.message),
                   })
                 }
@@ -238,9 +185,9 @@ function Logins() {
                 {action}
               </Button>
             </li>
-          );
+          )
         })}
       </ul>
     </section>
-  );
+  )
 }
