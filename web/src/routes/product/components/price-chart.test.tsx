@@ -5,6 +5,7 @@ import { renderWithProviders } from '@/test/render'
 import { api } from '@/lib/api/client'
 import type { History } from '@/lib/api/products'
 import { PriceChart } from '@/routes/product/components/price-chart'
+import { MAX_DOTS, showDots } from '@/routes/product/components/show-dots'
 
 vi.mock('@/lib/api/client', () => ({
   api: { get: vi.fn() },
@@ -50,5 +51,11 @@ describe('PriceChart', () => {
 
     await user.click(await screen.findByRole('radio', { name: '24h' }))
     expect(api.get).toHaveBeenLastCalledWith('/products/1/history', { searchParams: { range: '1d' } })
+  })
+
+  it('shows a dot per check until there are too many to tell apart', () => {
+    expect(showDots(1)).toBe(true)
+    expect(showDots(MAX_DOTS)).toBe(true)
+    expect(showDots(MAX_DOTS + 1)).toBe(false)
   })
 })

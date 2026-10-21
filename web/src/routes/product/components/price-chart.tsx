@@ -14,6 +14,7 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group'
 import { historyQueryOptions, type History, type HistoryRange } from '@/lib/api/products'
 import { formatCents } from '@/lib/format'
+import { showDots } from '@/routes/product/components/show-dots'
 
 // Contrasting chart tokens first, so the first few lines are easy to tell apart.
 const COLORS = ['var(--chart-1)', 'var(--chart-2)', 'var(--chart-4)', 'var(--chart-3)', 'var(--chart-5)']
@@ -186,10 +187,17 @@ export function PriceChart({ productId }: { productId: number }) {
               <Line
                 key={s.variantId}
                 dataKey={`v${s.variantId}`}
-                type="stepAfter"
+                type="linear"
                 stroke={`var(--color-v${s.variantId})`}
                 strokeWidth={2}
-                dot={false}
+                strokeLinejoin="round"
+                strokeLinecap="round"
+                dot={
+                  showDots(rows.length)
+                    ? { r: 4, fill: `var(--color-v${s.variantId})`, stroke: 'var(--background)', strokeWidth: 2 }
+                    : false
+                }
+                activeDot={{ r: 5, stroke: 'var(--background)', strokeWidth: 2 }}
                 connectNulls
                 isAnimationActive={false}
               />
