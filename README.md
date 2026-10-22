@@ -38,7 +38,7 @@ The typical price is the median of each day's cheapest price over the last 30 da
 
 You can change the 20%, the 30 days, and how many days of history it needs first. Do it for every product in Settings, or for one product on its page.
 
-Dropcatch also emails you once when a Shopee or Lazada login expires, when a link stops working, and when nothing has been checked for 12 hours.
+Dropcatch also emails you once when a Shopee or Lazada login expires, when a link fails 3 checks in a row, and when nothing has been checked for 12 hours.
 
 ## What each site gives you
 

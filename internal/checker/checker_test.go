@@ -91,6 +91,14 @@ func (e *env) check(t *testing.T) {
 	}
 }
 
+// failUntilBroken runs enough failing checks to mark the link broken.
+func (e *env) failUntilBroken(t *testing.T) {
+	t.Helper()
+	for range BrokenAfter {
+		e.check(t)
+	}
+}
+
 func (e *env) seedDays(t *testing.T, days int, cents int64) {
 	t.Helper()
 	for ago := days; ago >= 1; ago-- {
@@ -147,7 +155,7 @@ func TestGoneVariant(t *testing.T) {
 func TestBrokenLinkEmailsOnce(t *testing.T) {
 	e := setup(t)
 	e.r.next = func(string) (reader.Listing, error) { return reader.Listing{}, reader.ErrUnreadable }
-	e.check(t)
+	e.failUntilBroken(t)
 	e.check(t)
 	l, _ := e.s.GetLink(context.Background(), e.l.ID)
 	if l.Status != store.LinkBroken || !strings.Contains(l.LastError, "price not found") {
@@ -163,10 +171,38 @@ func TestBrokenLinkEmailsOnce(t *testing.T) {
 	}
 }
 
+func TestOneMissIsNotBroken(t *testing.T) {
+	e := setup(t)
+	fail := func(string) (reader.Listing, error) { return reader.Listing{}, reader.ErrUnreadable }
+	ok := func(string) (reader.Listing, error) { return listing(vp("a", 25000, true)), nil }
+
+	e.check(t) // ok, so the link starts out working
+	e.r.next = fail
+	for range BrokenAfter - 1 {
+		e.check(t)
+	}
+	e.r.next = ok
+	e.check(t)
+	e.r.next = fail
+	for range BrokenAfter - 1 {
+		e.check(t)
+	}
+	if l, _ := e.s.GetLink(context.Background(), e.l.ID); l.Status != store.LinkOK {
+		t.Fatalf("a good check should restart the count: link = %+v", l)
+	}
+	if len(e.mail.subjects) != 0 {
+		t.Fatalf("mail = %v", e.mail.subjects)
+	}
+	e.check(t)
+	if l, _ := e.s.GetLink(context.Background(), e.l.ID); l.Status != store.LinkBroken {
+		t.Fatalf("link = %+v", l)
+	}
+}
+
 func TestInvalidListingIsBroken(t *testing.T) {
 	e := setup(t)
 	e.r.next = func(string) (reader.Listing, error) { return listing(vp("a", 0, true)), nil }
-	e.check(t)
+	e.failUntilBroken(t)
 	latest, _ := e.s.LatestReadings(context.Background(), e.p.ID)
 	if len(latest) != 0 {
 		t.Fatalf("zero price was recorded: %+v", latest)
@@ -296,7 +332,7 @@ func TestBadUntrackedVariantDoesNotBreakLink(t *testing.T) {
 func TestBadTrackedVariantBreaksLink(t *testing.T) {
 	e := setup(t)
 	e.r.next = func(string) (reader.Listing, error) { return listing(vp("a", 0, true), vp("b", 100, true)), nil }
-	e.check(t)
+	e.failUntilBroken(t)
 	if l, _ := e.s.GetLink(context.Background(), e.l.ID); l.Status != store.LinkBroken {
 		t.Fatalf("link = %+v", l)
 	}

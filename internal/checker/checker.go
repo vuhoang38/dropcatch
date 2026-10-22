@@ -18,6 +18,11 @@ import (
 	"dropcatch/internal/store"
 )
 
+// BrokenAfter is how many checks in a row must come back without a price
+// before a link counts as broken. Lazada sometimes loads a page without its
+// product data, so one miss says little.
+const BrokenAfter = 3
+
 type Checker struct {
 	Store   *store.Store
 	Browser reader.Browser
@@ -272,6 +277,14 @@ func (c *Checker) recordFailure(ctx context.Context, p store.Product, l store.Li
 		return nil
 	}
 	log.Printf("check %s: %v", l.URL, readErr)
+	streak, err := c.Store.FailStreak(ctx, l.ID)
+	if err != nil {
+		return err
+	}
+	if streak < BrokenAfter {
+		// Keep the status it had, but show what went wrong this time.
+		return c.Store.SetLinkResult(ctx, l.ID, l.Status, readErr.Error(), now)
+	}
 	if err := c.Store.SetLinkResult(ctx, l.ID, store.LinkBroken, readErr.Error(), now); err != nil {
 		return err
 	}

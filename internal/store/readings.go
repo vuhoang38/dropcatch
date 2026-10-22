@@ -32,6 +32,17 @@ func (s *Store) LogCheck(ctx context.Context, linkID int64, at time.Time, ok boo
 	return err
 }
 
+// FailStreak counts the link's failed checks since its last good one.
+func (s *Store) FailStreak(ctx context.Context, linkID int64) (int, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM check_log
+		 WHERE link_id = ? AND ok = 0
+		   AND id > COALESCE((SELECT MAX(id) FROM check_log WHERE link_id = ? AND ok = 1), 0)`,
+		linkID, linkID).Scan(&n)
+	return n, err
+}
+
 // countable limits readings to variants that count toward prices right now.
 const countable = `
 	FROM readings r
